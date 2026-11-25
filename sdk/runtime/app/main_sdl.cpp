@@ -137,6 +137,14 @@ bool Gamescope() {
     return gamescope;
 }
 
+// window thread: where the window is now, for the log
+void LogPlace() {
+    static const char* const kModes[] = {"fullscreen", "borderless", "windowed"};
+    const char* on = SDL_GetDisplayName(SDL_GetDisplayForWindow(g_window));
+    LOGR("display: %s on %s, %ux%u pixels", kModes[uint32_t(Get().display_mode) % 3], on ? on : "a screen",
+         g_pixel_w.load(), g_pixel_h.load());
+}
+
 // window thread: the display settings onto the window, as main.cpp's ApplyNow: windowed (centred, the picture at the
 // size asked for in pixels), borderless over the screen, or fullscreen in another mode when one is asked for
 void ApplyNow() {
@@ -173,8 +181,14 @@ void ApplyNow() {
             LOGR("display: no %ux%u mode on the screen, the desktop mode kept", fw, fh);
             change = false;
         }
-        // borderless (and fullscreen at the desktop's own mode): a window over the screen, no mode change
-        bool ok = SDL_SetWindowFullscreenMode(g_window, change ? &mode : nullptr) && SDL_SetWindowFullscreen(g_window, true);
+        // borderless (and fullscreen at the desktop's own mode): a window over the screen, no mode change. Wayland
+        // places no windows, so there the screen is named by its own desktop mode (which changes nothing on it)
+        const SDL_DisplayMode* use = change ? &mode : nullptr;
+        SDL_DisplayMode own{};
+        if (!change && desk && std::strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0 &&
+            SDL_GetClosestFullscreenDisplayMode(id, desk->w, desk->h, desk->refresh_rate, true, &own))
+            use = &own;
+        bool ok = SDL_SetWindowFullscreenMode(g_window, use) && SDL_SetWindowFullscreen(g_window, true);
         g_exclusive = change && ok;
         if (change)
             LOGR("display: %ux%u at %.0f Hz%s", uint32_t(mode.w), uint32_t(mode.h), mode.refresh_rate,
@@ -183,10 +197,11 @@ void ApplyNow() {
     }
     if (SDL_GetWindowFlags(g_window) & SDL_WINDOW_HIDDEN) {
         UpdatePixelSize();
-        return;
+        return;  // the rest when it is shown (ShowWindow)
     }
     SDL_SyncWindow(g_window);
     UpdatePixelSize();
+    LogPlace();
 }
 
 void ShowWindow() {
@@ -194,6 +209,7 @@ void ShowWindow() {
     SDL_RaiseWindow(g_window);
     SDL_SyncWindow(g_window);
     UpdatePixelSize();
+    LogPlace();
 }
 
 // a message to the hooks in main.cpp's order: the menu, the game, then the window's own handling
