@@ -221,7 +221,7 @@ void WindowPixelSize(uint32_t& w, uint32_t& h);   // its drawable size in pixels
 #endif
 void CloseGameWindow();  // as the window's close button: the run ends with g_quit_code; any thread
 // the value after a command line option ("--ini"), empty when it isn't given
-std::filesystem::path Option(const char* name);
+std::filesystem::path ArgValue(const char* name);
 // a warning with Yes and No, No the default: true for Yes; never asked (false) with --no-dialogs
 bool AskYesNo(const std::wstring& message);
 // boot splash: GameInfo::splash .bmp or .png beside the exe, up before the game window
