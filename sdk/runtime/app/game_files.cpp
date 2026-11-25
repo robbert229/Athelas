@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -190,12 +191,20 @@ bool FindGame(GameFiles& game) {
                         L"supported for now), and will most likely crash.";
     if (Args().any_release) LOGW("game: another release, started anyway (--any-release)");
     else if (Args().no_dialogs) Fail(kExitWrongRelease, text);
+#ifdef _WIN32
     else if (MessageBoxW(nullptr, (text + L"\n\nStart it anyway?").c_str(), kGame.short_title,
                     MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) != IDYES) {
         LOGR("Exit (%d): another release, not started", kExitWrongRelease);
         logx::Flush();
         ExitProcess(kExitWrongRelease);
     }
+#else
+    else if (!AskYesNo(text + L"\n\nStart it anyway?")) {
+        LOGR("Exit (%d): another release, not started", kExitWrongRelease);
+        logx::Flush();
+        std::_Exit(kExitWrongRelease);
+    }
+#endif
     game = std::move(other);
     kernel::MountDisc(std::move(other_disc));
     return true;
