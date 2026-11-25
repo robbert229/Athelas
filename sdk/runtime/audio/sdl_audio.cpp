@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "app/app.h"
+#include "app/sdl_window.h"
 #include "audio/audio.h"
 #include "core/log.h"
 
@@ -56,10 +57,7 @@ SDL_AudioStream* Open() {
 
 void StartOutput(std::function<void(float*, uint32_t)> render) {
     std::thread([render] {
-        if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-            LOGE("audio: SDL audio unavailable (%s), no sound", SDL_GetError());
-            return;
-        }
+        if (!app::sdl::AudioUp()) return;  // (started on the window thread, as SDL wants; the reason logged there)
         SDL_AddEventWatch(Watch, nullptr);
         SDL_AudioStream* stream = Open();
         if (!stream) LOGE("audio: no output device (%s), no sound until one is there", SDL_GetError());

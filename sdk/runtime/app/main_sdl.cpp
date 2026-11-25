@@ -56,6 +56,7 @@ uint32_t g_call_event = 0;   // a function to run on the window thread (RunOnWin
 bool g_quit = false;         // window thread: the loop ends
 bool g_exclusive = false;    // window thread: fullscreen in a mode other than the desktop's
 float g_motion_x = 0, g_motion_y = 0;  // window thread: relative movement's fractions, kept for the next event
+std::atomic<int> g_audio{-1};          // SDL's audio: -1 not started, 0 failed, 1 up
 // the window's HDR state, read by the window thread (SDL wants its window properties read there) for the renderer
 std::mutex g_hdr_mutex;
 bool g_hdr = false;
@@ -162,6 +163,13 @@ void UpdateHdr() {
     g_hdr = p && SDL_GetBooleanProperty(p, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
     g_hdr_white = p ? SDL_GetFloatProperty(p, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f) : 1.0f;
     g_hdr_headroom = p ? SDL_GetFloatProperty(p, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f) : 1.0f;
+}
+
+// SDL's audio, started on the thread that started video (SDL wants its subsystems started on the main thread)
+void StartAudio() {
+    if (g_audio >= 0) return;
+    g_audio = SDL_InitSubSystem(SDL_INIT_AUDIO) ? 1 : 0;
+    if (!g_audio) LOGE("audio: SDL audio unavailable (%s), no sound", SDL_GetError());
 }
 
 bool Gamescope() {
@@ -531,9 +539,18 @@ bool StartVideo() {
     SDL_SetAppMetadata(title.c_str(), kGame.version, id.c_str());
     // under gamescope the game keeps the screen when another window takes the focus (main.cpp's ApplyNow)
     if (Gamescope()) SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
-    if (SDL_InitSubSystem(SDL_INIT_VIDEO)) return true;
-    LOGE("window: SDL's video didn't start: %s", SDL_GetError());
-    return false;
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        LOGE("window: SDL's video didn't start: %s", SDL_GetError());
+        return false;
+    }
+    StartAudio();  // here, for the sound's thread (AudioUp)
+    return true;
+}
+
+bool AudioUp() {
+    // with no video started (no window), here or on the window thread
+    if (g_audio < 0) RunOnWindowThread(StartAudio);
+    return g_audio == 1;
 }
 
 bool WindowHdr(float& white, float& headroom) {
