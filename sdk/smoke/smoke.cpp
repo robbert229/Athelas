@@ -1,15 +1,35 @@
 // xbe_smoke: the runtime started without a game, as far as each platform's host side goes so far.
-//   xbe_smoke [--window] [--frames N]
-// Today: logging, the settings file and guest memory, then exit 0. --window and --frames are read but wait for the
-// SDL3 window (they will open it and draw N frames through the Vulkan backend, with sound).
+//   xbe_smoke [--window] [--frames N] [--fps N]
+// Logging, the settings file and guest memory, then exit 0. --window (off Windows) opens the game window and runs its
+// event loop as a port does: keys, mouse buttons, the wheel, focus and close reach GameInfo::message as Win32
+// messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second.
+// --frames N closes the window after N frames (0: when it is closed). The renderer isn't drawn yet.
+// --crash segv|abort|overflow (off Windows): the crash handler installed, then that crash, on a thread the way the
+// kernel starts the game's (its own signal stack): a crash log should land in CrashDumps beside the exe.
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
+#include <windows.h>  // off Windows the compat header: the WM_ and VK_ names
 
 #include "app/app.h"
+#include "core/keys.h"
 #include "core/log.h"
+#include "kernel/kernel.h"
 #include "kernel/memory.h"
+#ifndef _WIN32
+#include <csignal>
+
+#include "app/sdl_window.h"
+#endif
+
+namespace {
+bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
+}
 
 // what a game's src/common/game_info.cpp gives
 const app::GameInfo app::kGame = {
@@ -22,6 +42,7 @@ const app::GameInfo app::kGame = {
     .splash = L"",
     .missing = L"No game: the smoke test runs without one.",
     .images = {{"stand-in.xbe", "xbe_smoke"}},
+    .message = Message,
 };
 // what CMake writes from the xbe (add_xbe_image)
 extern const char kImageSha1[] = "";
@@ -31,7 +52,85 @@ namespace {
 struct Options {
     bool window = false;
     int frames = 0;
+    int fps = 60;
+    std::string crash;
 };
+
+// what the window hands the game, logged as it comes (a game's own hooks see the same)
+bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t*) {
+    auto x = int(int16_t(LOWORD(lp))), y = int(int16_t(HIWORD(lp)));
+    switch (msg) {
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:
+            LOGR("smoke: %s %02X%s (shift %d)", msg == WM_KEYDOWN ? "key down" : "system key down", unsigned(wp),
+                 lp & (intptr_t(1) << 30) ? " repeat" : "", keys::Held(VK_SHIFT));
+            break;
+        case WM_KEYUP:
+        case WM_SYSKEYUP: LOGR("smoke: key up %02X", unsigned(wp)); break;
+        case WM_LBUTTONDOWN: LOGR("smoke: left button down at %d,%d", x, y); break;
+        case WM_RBUTTONDOWN: LOGR("smoke: right button down at %d,%d", x, y); break;
+        case WM_MBUTTONDOWN: LOGR("smoke: middle button down at %d,%d", x, y); break;
+        case WM_XBUTTONDOWN: LOGR("smoke: side button %u down at %d,%d", unsigned(HIWORD(wp)), x, y); break;
+        case WM_MOUSEWHEEL: LOGR("smoke: wheel %d", int(GET_WHEEL_DELTA_WPARAM(wp))); break;
+        case WM_ACTIVATE: LOGR("smoke: %s", LOWORD(wp) == WA_INACTIVE ? "focus lost" : "focus"); break;
+        case WM_CLOSE: LOGR("smoke: close"); break;
+    }
+    return false;
+}
+
+#ifndef _WIN32
+__attribute__((noinline)) int Deeper(volatile int* p) {
+    volatile char pad[4096];
+    pad[0] = char(*p);
+    return Deeper(p) + pad[0];
+}
+
+void Crash(const std::string& kind) {
+    app::sdl::InstallCrashHandler();
+    std::thread t([&] {
+        if (kernel::g_thread_started) kernel::g_thread_started();
+        volatile int zero = 0;
+        if (kind == "abort") std::abort();
+        if (kind == "overflow") Deeper(&zero);
+        *reinterpret_cast<volatile int*>(uintptr_t(zero) + 16) = 1;
+    });
+    t.join();
+}
+
+// the window thread's loop on the main thread, as a port's; frames from another thread, as the game's
+int RunWindow(const Options& o) {
+    app::Get().fps_cap = uint32_t(std::max(o.fps, 0));
+    if (!app::StartWindow(true)) return 1;
+    uint32_t w = 0, h = 0;
+    app::WindowPixelSize(w, h);
+    LOGR("smoke: window up, %ux%u pixels, alive %d", w, h, app::WindowAlive());
+    std::atomic<bool> stop{false};
+    std::thread frames([&] {
+        using clock = std::chrono::steady_clock;
+        auto start = clock::now(), second = start;
+        int n = 0, last = 0;
+        while (!stop && (!o.frames || n < o.frames)) {
+            app::Pace();
+            n++;
+            if (clock::now() - second >= std::chrono::seconds(1)) {
+                uint32_t pw = 0, ph = 0;
+                app::WindowPixelSize(pw, ph);
+                LOGR("smoke: %d frames a second, %ux%u pixels", n - last, pw, ph);
+                last = n;
+                second += std::chrono::seconds(1);
+            }
+        }
+        double secs = std::chrono::duration<double>(clock::now() - start).count();
+        LOGR("smoke: %d frames in %.3f s (%.2f a second)", n, secs, secs > 0 ? n / secs : 0.0);
+        if (!stop) app::CloseGameWindow();
+    });
+    int code = app::RunWindowLoop();
+    stop = true;
+    frames.join();
+    LOGR("smoke: window closed (%d)", code);
+    return code;
+}
+#endif
 
 bool Parse(int argc, char** argv, Options& o) {
     for (int i = 1; i < argc; i++) {
@@ -39,8 +138,12 @@ bool Parse(int argc, char** argv, Options& o) {
             o.window = true;
         } else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             o.frames = std::atoi(argv[++i]);
+        } else if (!std::strcmp(argv[i], "--fps") && i + 1 < argc) {
+            o.fps = std::atoi(argv[++i]);
+        } else if (!std::strcmp(argv[i], "--crash") && i + 1 < argc) {
+            o.crash = argv[++i];
         } else {
-            std::fprintf(stderr, "usage: %s [--window] [--frames N]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--window] [--frames N] [--fps N] [--crash segv|abort|overflow]\n", argv[0]);
             return false;
         }
     }
@@ -65,7 +168,12 @@ int main(int argc, char** argv) {
     LOGR("smoke: settings from %s", app::SettingsFile().string().c_str());
     if (!mem::Init()) return Fail("guest memory");
     LOGR("smoke: guest memory up");
-    if (o.window || o.frames) LOGR("smoke: --window and --frames wait for the SDL3 window (M1 workstream B)");
+#ifndef _WIN32
+    if (!o.crash.empty()) Crash(o.crash);
+    if (o.window) {
+        if (int code = RunWindow(o)) return Fail("the window");
+    }
+#endif
     LOGR("smoke: done");
     logx::Flush();
     std::printf("xbe_smoke: ok\n");
