@@ -5,6 +5,8 @@
 #ifndef _WIN32
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <semaphore.h>
+#include <signal.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -171,6 +173,47 @@ void StartAudio() {
     if (g_audio >= 0) return;
     g_audio = SDL_InitSubSystem(SDL_INIT_AUDIO) ? 1 : 0;
     if (!g_audio) LOGE("audio: SDL audio unavailable (%s), no sound", SDL_GetError());
+}
+
+// SIGINT and SIGTERM (Ctrl+C, a session's end, timeout): the first asks the window to close, as its close button
+// does. The window thread may be stuck (in SDL or the driver), so a second signal, or the game still running 5 s
+// later, ends the process at once; before the window's loop runs there is nothing to ask, and it ends at once too.
+// SDL's own handlers (which only queue a quit for the window thread) are left out.
+sem_t g_term_sem;
+std::atomic<int> g_term_signal{0};
+
+void OnTermSignal(int sig) {
+    int none = 0;
+    if (!g_term_signal.compare_exchange_strong(none, sig)) {
+        signal(sig, SIG_DFL);
+        raise(sig);
+        return;
+    }
+    sem_post(&g_term_sem);
+}
+
+void InstallTermHandler() {
+    if (sem_init(&g_term_sem, 0, 0) != 0) return;
+    std::thread([] {
+        while (sem_wait(&g_term_sem) != 0) {
+        }
+        int sig = g_term_signal.load();
+        if (g_looping && !g_loop_done) {
+            LOGR("signal %d: the window closes", sig);
+            CloseGameWindow();
+            std::this_thread::sleep_for(std::chrono::seconds(5));
+            LOGW("signal %d: still running 5 s on, ended", sig);
+        }
+        logx::Flush();
+        signal(sig, SIG_DFL);
+        raise(sig);
+    }).detach();
+    struct sigaction sa{};
+    sa.sa_handler = OnTermSignal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGTERM, &sa, nullptr);
 }
 
 bool Gamescope() {
@@ -609,6 +652,8 @@ bool StartVideo() {
     SDL_SetAppMetadata(title.c_str(), kGame.version, id.c_str());
     // under gamescope the game keeps the screen when another window takes the focus (main.cpp's ApplyNow)
     if (Gamescope()) SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+    InstallTermHandler();
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
         LOGE("window: SDL's video didn't start: %s", SDL_GetError());
         return false;
