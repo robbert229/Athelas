@@ -1,5 +1,5 @@
 # build
-/out/
+/out
 /build/
 *.zip
 *.pdb
@@ -8,10 +8,10 @@
 *.o
 
 # recompiled code, derived from the game
-/generated/
+/generated
 
 # user's own game files
-/assets/
+/assets
 
 # runtime files
 settings.toml
