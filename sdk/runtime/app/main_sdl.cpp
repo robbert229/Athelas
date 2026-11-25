@@ -3,6 +3,7 @@
 // the Win32 messages main.cpp's window gets (WM_KEYDOWN with VK_ codes, WM_ACTIVATE, WM_LBUTTONDOWN...), so the
 // games' hooks are the same on every system. The main thread is the window thread: SDL wants its windows there.
 #ifndef _WIN32
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
@@ -248,8 +249,77 @@ void ApplyNow() {
     LogPlace();
 }
 
-void ShowWindow() {
+// X11: SDL_ShowWindow waits for the window to be mapped, with no limit, and KWin maps no new window while every screen
+// is off (DPMS); other window managers may hold one back too. After 3 s a MapNotify is sent to the window through a
+// connection of our own, which ends SDL's wait: the game goes on drawing to the unmapped window, and the window
+// manager maps it later (as the screens wake). libX11 is opened at run time (SDL's X11 driver loads it too), its
+// event declared here as its ABI lays it out, so no X11 headers are needed to build.
+struct XMapEventAbi {
+    int type;
+    unsigned long serial;
+    int send_event;
+    void* display;
+    unsigned long event, window;
+    int override_redirect;
+};
+union XEventAbi {
+    XMapEventAbi map;
+    long pad[24];
+};
+
+void SendMapNotify(unsigned long xwindow, const std::string& display_name) {
+    void* lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL);
+    if (!lib) return;
+    auto open = reinterpret_cast<void* (*)(const char*)>(dlsym(lib, "XOpenDisplay"));
+    auto send = reinterpret_cast<int (*)(void*, unsigned long, int, long, XEventAbi*)>(dlsym(lib, "XSendEvent"));
+    auto flush = reinterpret_cast<int (*)(void*)>(dlsym(lib, "XFlush"));
+    auto close = reinterpret_cast<int (*)(void*)>(dlsym(lib, "XCloseDisplay"));
+    void* dpy = open && send && flush && close ? open(display_name.empty() ? nullptr : display_name.c_str()) : nullptr;
+    if (dpy) {
+        constexpr int kMapNotify = 19;
+        constexpr long kStructureNotifyMask = 1L << 17;
+        XEventAbi e{};
+        e.map.type = kMapNotify;
+        e.map.event = e.map.window = xwindow;
+        send(dpy, xwindow, 0, kStructureNotifyMask, &e);
+        flush(dpy);
+        close(dpy);
+    }
+    dlclose(lib);
+}
+
+void ShowOnX11() {
+    SDL_PropertiesID p = SDL_GetWindowProperties(g_window);
+    auto xwindow = static_cast<unsigned long>(SDL_GetNumberProperty(p, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
+    std::string display_name;
+    if (void* dpy = SDL_GetPointerProperty(p, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr)) {
+        void* lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD);
+        auto name = lib ? reinterpret_cast<const char* (*)(void*)>(dlsym(lib, "XDisplayString")) : nullptr;
+        if (const char* n = name ? name(dpy) : nullptr) display_name = n;
+        if (lib) dlclose(lib);
+    }
+    std::mutex m;
+    std::condition_variable cv;
+    bool shown = false;
+    std::thread watch([&] {
+        std::unique_lock lock(m);
+        if (!xwindow || cv.wait_for(lock, std::chrono::seconds(3), [&] { return shown; })) return;
+        LOGW("window: the window manager hasn't mapped the window in 3 s (the screens off?), going on without it");
+        SendMapNotify(xwindow, display_name);
+    });
     SDL_ShowWindow(g_window);
+    {
+        std::lock_guard lock(m);
+        shown = true;
+    }
+    cv.notify_all();
+    watch.join();
+}
+
+void ShowWindow() {
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (driver && std::strcmp(driver, "x11") == 0) ShowOnX11();
+    else SDL_ShowWindow(g_window);
     SDL_RaiseWindow(g_window);
     SDL_SyncWindow(g_window);
     UpdatePixelSize();
