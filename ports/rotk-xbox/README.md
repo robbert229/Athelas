@@ -37,6 +37,8 @@ What the port does, its keys and settings are in [`rotkxbox/README.md`](rotkxbox
 2. Put your own game's extracted files in `rotkxbox\assets`: `default.xbe` with the game's folders beside it.
 3. Run `rotkxbox\build.bat`. The first build recompiles the game and takes a while. The exe is written to `rotkxbox\out\build\release`.
 
+On Linux (in progress, `notes/mac-linux-plan.md` M1; the exe does not run yet): clang, lld, CMake, Ninja, Git and Python 3, then `rotkxbox/build.sh` (preset `linux-release`; `./build.sh linux-debug` for the other). It stops with a message when `assets/default.xbe` is missing. To check that ROTK's own sources compile and link on Linux without the game, use the SDK's smoke test with `-DXBE_PORT` (`sdk/smoke/README.md`).
+
 The recompiled code (`rotkxbox\generated`) is made on your PC from your own `default.xbe`. It is game code, so it is never committed, and neither are your game files, the build output or analysis output made from the game. `.gitignore` keeps them out.
 
 ## Licence
