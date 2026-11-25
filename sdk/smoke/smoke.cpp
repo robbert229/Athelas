@@ -1,9 +1,12 @@
 // xbe_smoke: the runtime started without a game, as far as each platform's host side goes so far.
-//   xbe_smoke [--window] [--frames N] [--fps N]
+//   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N]
 // Logging, the settings file and guest memory, then exit 0. --window (off Windows) opens the game window and runs its
 // event loop as a port does: keys, mouse buttons, the wheel, focus and close reach GameInfo::message as Win32
 // messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second.
-// --frames N closes the window after N frames (0: when it is closed). The renderer isn't drawn yet.
+// --frames N closes the window after N frames (0: when it is closed).
+// --vulkan (off Windows, instead of --window) opens the game window and draws the frames through the Vulkan backend
+// with the ImGui overlay; --audio plays a test tone through the platform audio output, alone for N / 60 seconds or
+// while the frames are drawn (smoke_av.cpp). Exit 1 when either fails.
 // --crash segv|abort|overflow (off Windows): the crash handler installed, then that crash, on a thread the way the
 // kernel starts the game's (its own signal stack): a crash log should land in CrashDumps beside the exe.
 #include <algorithm>
@@ -30,6 +33,10 @@
 namespace {
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
 }
+namespace smoke {  // smoke_av.cpp
+void Ui(double fps);
+int Run(bool vulkan, bool sound, int frames);
+}  // namespace smoke
 
 // what a game's src/common/game_info.cpp gives
 const app::GameInfo app::kGame = {
@@ -43,6 +50,7 @@ const app::GameInfo app::kGame = {
     .missing = L"No game: the smoke test runs without one.",
     .images = {{"stand-in.xbe", "xbe_smoke"}},
     .message = Message,
+    .ui = smoke::Ui,
 };
 // what CMake writes from the xbe (add_xbe_image)
 extern const char kImageSha1[] = "";
@@ -50,7 +58,7 @@ extern const char kImageSha1[] = "";
 namespace {
 
 struct Options {
-    bool window = false;
+    bool window = false, vulkan = false, audio = false;
     int frames = 0;
     int fps = 60;
     std::string crash;
@@ -136,6 +144,10 @@ bool Parse(int argc, char** argv, Options& o) {
     for (int i = 1; i < argc; i++) {
         if (!std::strcmp(argv[i], "--window")) {
             o.window = true;
+        } else if (!std::strcmp(argv[i], "--vulkan")) {
+            o.vulkan = true;
+        } else if (!std::strcmp(argv[i], "--audio")) {
+            o.audio = true;
         } else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             o.frames = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--fps") && i + 1 < argc) {
@@ -143,7 +155,7 @@ bool Parse(int argc, char** argv, Options& o) {
         } else if (!std::strcmp(argv[i], "--crash") && i + 1 < argc) {
             o.crash = argv[++i];
         } else {
-            std::fprintf(stderr, "usage: %s [--window] [--frames N] [--fps N] [--crash segv|abort|overflow]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--crash segv|abort|overflow]\n", argv[0]);
             return false;
         }
     }
@@ -170,6 +182,14 @@ int main(int argc, char** argv) {
     LOGR("smoke: guest memory up");
 #ifndef _WIN32
     if (!o.crash.empty()) Crash(o.crash);
+    if (o.vulkan || o.audio) {
+        // (the sound's thread is still running: no destructors)
+        int code = smoke::Run(o.vulkan, o.audio, o.frames);
+        logx::Flush();
+        std::printf("xbe_smoke: %s\n", code ? "failed (logs/)" : "ok");
+        std::fflush(stdout);
+        std::_Exit(code);
+    }
     if (o.window) {
         if (int code = RunWindow(o)) return Fail("the window");
     }

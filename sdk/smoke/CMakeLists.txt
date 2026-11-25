@@ -15,7 +15,7 @@ file(GLOB signatures CONFIGURE_DEPENDS ${XBE_SDK_DIR}/xdk/*/signatures.toml)
 set(GEN ${CMAKE_CURRENT_BINARY_DIR}/gen)
 xbe_stand_in(${GEN} TOML ${signatures})
 
-add_executable(xbe_smoke ${XBE_RUNTIME_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/smoke.cpp ${GEN}/x86_func_mapping.cpp
+add_executable(xbe_smoke ${XBE_RUNTIME_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/smoke.cpp ${CMAKE_CURRENT_LIST_DIR}/smoke_av.cpp ${GEN}/x86_func_mapping.cpp
                ${XBE_IMGUI_SOURCES})
 target_include_directories(xbe_smoke PRIVATE ${XBE_SDK_DIR}/runtime ${GEN})
 xbe_host_runtime(xbe_smoke)

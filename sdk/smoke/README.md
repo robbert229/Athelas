@@ -5,16 +5,25 @@ XDK, renderer, sound, window) builds and starts on a platform before any game ha
 recompiled code is a stand in (`cmake/XbeStandIn.cmake`): every XDK symbol the SDK's signatures name is absent, and
 every recompiled function traps.
 
-Today it starts logging, the settings file and guest memory, then exits 0. `--window` and `--frames N` are parsed
-for the window and renderer work to wire up (open the window, draw N frames through Vulkan, play sound).
+Alone it starts logging, the settings file and guest memory, then exits 0. `--window` opens the game window and logs
+what reaches the game from it, with a paced frame thread (`--fps`). `--vulkan` opens the window and draws N frames
+(`--frames N`, 0 until the window is closed) through the real Vulkan backend: a clear and three triangles through
+`Backend::Draw` (fixed-function state, shaders through glslang), shown at the console's 4:3 with the ImGui overlay.
+`--audio` plays a 440/660 Hz tone through the platform audio output, alone for N / 60 seconds or while the frames are
+drawn. It exits 1 when the renderer doesn't start or the output pulls less than half real time.
 
 ## Build and run (Linux)
 
 ```
 cmake -S sdk/smoke -B sdk/smoke/build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 ninja -C sdk/smoke/build xbe_smoke
-cd sdk/smoke/build && ./xbe_smoke [--window] [--frames N]
+cd sdk/smoke/build && ./xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N]
 ```
+
+Useful with `--vulkan` and `--audio`: `XBE_VK_VALIDATE=1` (or `sync`) logs the Khronos validation layer's errors, or
+`VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` prints its warnings too; `SDL_VIDEO_DRIVER=x11` or `wayland`;
+`VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json` for llvmpipe; `SDL_AUDIO_DRIVER=disk` writes the sound
+to `sdlaudio.raw` (float stereo, 48 kHz) to check it.
 
 It writes `logs/` and reads `smoke.toml` beside the exe. The first configure downloads the SDK's dependencies (SDL3,
 glslang, SPIRV-Tools and the rest), so it takes a minute. `xbe_recomp` and `xbe_symbols` build in the same tree.
