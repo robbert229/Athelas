@@ -107,6 +107,10 @@ constexpr const char* kLive[] = {
 
 bool IsLive(const cfg::Desc& d) {
     std::string k = std::string(d.section) + "." + d.key;
+#ifndef _WIN32
+    // the upscalers are Direct3D 12's, which only Windows has (gpu/backend.cpp): not in the menu
+    if (k == "graphics.upscaler" || k == "graphics.upscaler_quality") return false;
+#endif
     for (const char* l : kLive)
         if (k == l) return true;
     // online co-op: the game's own (difficulty, cheats) change the game, which must stay the same on both PCs: they

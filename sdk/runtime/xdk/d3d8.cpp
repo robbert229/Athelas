@@ -493,6 +493,7 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
     if (!g_backend) {
         g_backend = gpu::CreateBackend();
         bool ok = g_backend->Init(w, h);
+#ifdef _WIN32  // (elsewhere Vulkan is the only renderer, gpu/backend.cpp)
         if (!ok && app::Get().renderer == 1) {
             const char* why = g_backend->InitError();
             LOGR("vulkan: not used, Direct3D 12 instead: %s", why ? why : "it could not start");
@@ -508,6 +509,7 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
             ok = g_backend->Init(w, h);
             if (ok) app::g_vulkan_fallback = true;   // the in-game corner note says so (review)
         }
+#endif
         if (!ok) {
 #ifdef _WIN32
             HMODULE nt = GetModuleHandleA("ntdll.dll");
