@@ -17,6 +17,7 @@
 #include <cstring>
 #include <string>
 #include <thread>
+#include <vector>
 #include <windows.h>  // off Windows the compat header: the WM_ and VK_ names
 
 #include "app/app.h"
@@ -169,9 +170,7 @@ int Fail(const char* what) {
     return 1;
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
+int Smoke(int argc, char** argv) {
     Options o;
     if (!Parse(argc, argv, o)) return 2;
     logx::Init(app::LogFolder().string(), app::kGame.log);
@@ -199,3 +198,25 @@ int main(int argc, char** argv) {
     std::printf("xbe_smoke: ok\n");
     return 0;
 }
+
+}  // namespace
+
+#ifdef _WIN32
+// MinGW links with -municode (XbeRecomp.cmake), which starts at wmain: the arguments as UTF-8
+int wmain(int argc, wchar_t** wargv) {
+    std::vector<std::string> args;
+    for (int i = 0; i < argc; i++) {
+        int n = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
+        std::string a(size_t(n > 0 ? n : 1), '\0');
+        if (n > 0) WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, a.data(), n, nullptr, nullptr);
+        a.resize(std::strlen(a.c_str()));
+        args.push_back(a);
+    }
+    std::vector<char*> argv;
+    for (auto& a : args) argv.push_back(a.data());
+    argv.push_back(nullptr);
+    return Smoke(argc, argv.data());
+}
+#else
+int main(int argc, char** argv) { return Smoke(argc, argv); }
+#endif

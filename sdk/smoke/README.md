@@ -52,6 +52,20 @@ the dependencies, and `-DXBE_PORT` configured for a port's sources. For example,
 sdk/smoke/wincheck.sh $(git diff --name-only origin/main -- '*.cpp')
 ```
 
+## Windows cross-build
+
+`wincross.sh` builds and links `xbe_smoke.exe` for Windows from Linux, through `XbeRecomp.cmake`'s Windows path
+(`mingw-clang.cmake`: clang and lld for x86_64-w64-mingw32 with Fedora's mingw64 sysroot, linked statically). The link
+proves every Windows symbol still has a definition, which `wincheck.sh` can't. `XBE_PORT=<port project>` adds
+`xbe_port_check.exe`; `RUN=1` then starts `xbe_smoke.exe` under Wine. It writes `sdk/smoke/build-win`.
+
+```
+sudo dnf install mingw64-gcc-c++ mingw64-headers mingw64-crt mingw64-winpthreads-static wine
+XBE_PORT=ports/rotk-xbox/rotkxbox RUN=1 sdk/smoke/wincross.sh
+```
+
+Under Wine `xbe_port_check.exe --no-dialogs` runs the real `wWinMain` as far as finding the game, and exits 2.
+
 ## Stand ins
 
 Off Windows, `runtime/app/posix_pending.cpp` stands in for the Win32 app files the build leaves out
