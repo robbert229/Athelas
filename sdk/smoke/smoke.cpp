@@ -70,8 +70,8 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t*) {
     switch (msg) {
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN:
-            LOGR("smoke: %s %02X%s (shift %d)", msg == WM_KEYDOWN ? "key down" : "system key down", unsigned(wp),
-                 lp & (intptr_t(1) << 30) ? " repeat" : "", keys::Held(VK_SHIFT));
+            LOGR("smoke: %s %02X, scan code %u%s (shift %d)", msg == WM_KEYDOWN ? "key down" : "system key down",
+                 unsigned(wp), unsigned(lp >> 16 & 0xFF), lp & (intptr_t(1) << 30) ? " repeat" : "", keys::Held(VK_SHIFT));
             break;
         case WM_KEYUP:
         case WM_SYSKEYUP: LOGR("smoke: key up %02X", unsigned(wp)); break;
