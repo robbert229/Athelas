@@ -224,6 +224,24 @@ void InstallTermHandler() {
     sigaction(SIGUSR1, &shot, nullptr);
 }
 
+// the X server gone (gamescope or the session ended, Xwayland restarted): Xlib's own handler calls exit(), whose
+// destructors then run under the game's threads, which crash in guest memory that is no longer there. The process
+// ends at once instead, as on a second SIGTERM.
+void InstallXGoneHandler() {
+    if (std::strcmp(SDL_GetCurrentVideoDriver(), "x11") != 0) return;
+    void* lib = dlopen("libX11.so.6", RTLD_NOW | RTLD_NOLOAD);  // SDL's, already loaded
+    if (!lib) return;
+    using Handler = int (*)(void*);
+    auto set = reinterpret_cast<Handler (*)(Handler)>(dlsym(lib, "XSetIOErrorHandler"));
+    if (set)
+        set([](void*) -> int {
+            LOGR("window: the X server went away, the game ends");
+            logx::Flush();
+            _exit(kExitOk);
+        });
+    dlclose(lib);
+}
+
 bool Gamescope() {
     // as main.cpp: gamescope (Steam Deck Game Mode) scales the game itself and owns the screen
     static const bool gamescope = [] {
@@ -666,6 +684,7 @@ bool StartVideo() {
         LOGE("window: SDL's video didn't start: %s", SDL_GetError());
         return false;
     }
+    InstallXGoneHandler();
     StartAudio();  // here, for the sound's thread (AudioUp)
     return true;
 }
