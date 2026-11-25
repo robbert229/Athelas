@@ -74,11 +74,7 @@ void Refresh() {
 const std::vector<std::string>& ScreenNames() {
     static const std::vector<std::string> names = [] {
         std::vector<std::string> n{"main"};
-        for (const Screen& s : Screens()) {
-            n.push_back(s.name);
-            const char* sdl_name = SDL_GetDisplayName(s.id);
-            LOGI("display: %s is %s", s.name.c_str(), sdl_name ? sdl_name : "unnamed");
-        }
+        for (const Screen& s : Screens()) n.push_back(s.name);
         return n;
     }();
     return names;
@@ -94,6 +90,16 @@ Mode Desktop() {
 }
 
 namespace sdl {
+
+void LogScreens() {
+    SDL_DisplayID primary = SDL_GetPrimaryDisplay();
+    for (const Screen& s : Screens()) {
+        const char* name = SDL_GetDisplayName(s.id);
+        const SDL_DisplayMode* m = SDL_GetDesktopDisplayMode(s.id);
+        LOGR("display: %s is %s, %dx%d at %.0f Hz, scale %.2f%s", s.name.c_str(), name ? name : "unnamed", m ? m->w : 0,
+             m ? m->h : 0, m ? m->refresh_rate : 0.0f, SDL_GetDisplayContentScale(s.id), s.id == primary ? " (main)" : "");
+    }
+}
 
 SDL_DisplayID Display() {
     std::lock_guard lock(g_mutex);

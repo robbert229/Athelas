@@ -483,6 +483,7 @@ bool StartWindow(bool show) {
         return false;
     }
     LOGR("window: SDL %d.%d.%d, %s", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION, SDL_GetCurrentVideoDriver());
+    sdl::LogScreens();
     g_call_event = SDL_RegisterEvents(1);
     SDL_WindowFlags flags = SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_VULKAN;
     g_window = SDL_CreateWindow(title.c_str(), 1280, 720, flags);

@@ -16,5 +16,6 @@ void SetHeld(uint32_t vk, bool down);     // window thread, as keys and buttons 
 void ReleaseAll();                        // window thread: the focus went elsewhere
 SDL_DisplayID Display();                  // the screen setting's display (ScreenMonitor), the primary one without it
 void ScreensChanged();                    // window thread: a display was added, removed or changed mode
+void LogScreens();                        // each screen's setting name, SDL name and desktop mode
 void InstallCrashHandler();               // crash_posix.cpp: at start, on the main thread
 }  // namespace app::sdl
