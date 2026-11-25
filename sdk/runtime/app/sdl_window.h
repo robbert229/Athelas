@@ -14,7 +14,8 @@ uint32_t VirtualKey(SDL_Scancode sc, SDL_Keycode key);
 uint32_t MouseButtonKey(uint8_t button);  // SDL_BUTTON_LEFT ... X2: VK_LBUTTON ... VK_XBUTTON2, 0 for others
 void SetHeld(uint32_t vk, bool down);     // window thread, as keys and buttons go down and up
 void ReleaseAll();                        // window thread: the focus went elsewhere
-SDL_DisplayID Display();                  // the screen setting's display (ScreenMonitor), the primary one without it
+// the screen setting's display (ScreenMonitor), the primary one without it; off the window thread, as it last saw it
+SDL_DisplayID Display();
 void ScreensChanged();                    // window thread: a display was added, removed or changed mode
 void LogScreens();                        // each screen's setting name, SDL name and desktop mode
 bool StartVideo();                        // main thread: SDL's video, once (the app's name and hints first)

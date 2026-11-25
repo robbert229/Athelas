@@ -563,6 +563,7 @@ int RunWindowLoop() {
             while (!g_quit && SDL_PollEvent(&e)) Handle(e);
         }
         if (g_window) UpdatePointer();
+        sdl::Display();  // the screen setting changed on another thread: worked out again here
     }
     g_loop_done = true;
     // the window goes at once (a changed display mode back to the desktop's); the renderer may still be presenting

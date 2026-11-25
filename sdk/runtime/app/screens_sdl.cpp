@@ -34,7 +34,9 @@ std::vector<Screen> Screens() {
     return out;
 }
 
-// the chosen screen and its desktop mode, worked out again after ScreensChanged (asked each frame by Output)
+// the chosen screen and its desktop mode (asked each frame by Output). SDL's display calls belong on the thread that
+// started its video (the window thread), so they are worked out there, again after ScreensChanged or a change of the
+// screen setting; other threads read the last ones.
 std::mutex g_mutex;
 bool g_known = false;
 std::string g_for;  // the screen setting they were worked out for
@@ -43,7 +45,7 @@ Mode g_desktop{1280, 720};
 
 void Refresh() {
     const std::string& want = Get().screen;
-    if (g_known && g_for == want) return;
+    if ((g_known && g_for == want) || !SDL_IsMainThread()) return;
     g_known = true;
     g_for = want;
     g_display = VideoUp() ? SDL_GetPrimaryDisplay() : 0;
@@ -110,6 +112,8 @@ SDL_DisplayID Display() {
 void ScreensChanged() {
     std::lock_guard lock(g_mutex);
     g_known = false;
+    Refresh();
+    LOGR("display: the screens changed, the desktop %ux%u", g_desktop.width, g_desktop.height);
 }
 
 }  // namespace sdl
