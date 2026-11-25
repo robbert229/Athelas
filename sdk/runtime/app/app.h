@@ -218,6 +218,11 @@ void* Window();  // HWND; off Windows the game's SDL_Window (app/main_sdl.cpp), 
 void ImGuiPlatformNewFrame();                     // ImGui_ImplSDL3_NewFrame, in the renderer's ImGui frame, UiLock held
 bool WindowAlive();                               // the game window is still there (IsWindow); any thread
 void WindowPixelSize(uint32_t& w, uint32_t& h);   // its drawable size in pixels (GetClientRect); any thread
+// the window thread (the main thread, as SDL wants): the game window (shown, or hidden until OpenGameWindow), the
+// ImGui context with imgui_impl_sdl3 and the menu's font; false without a window. Then the events until the window
+// closes (CloseGameWindow, its close button, Ctrl+C), handed on as Win32 messages; returns g_quit_code
+bool StartWindow(bool show);
+int RunWindowLoop();
 #endif
 void CloseGameWindow();  // as the window's close button: the run ends with g_quit_code; any thread
 // the value after a command line option ("--ini"), empty when it isn't given

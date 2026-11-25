@@ -1,6 +1,7 @@
 // Keyboard and mouse play ([keyboard] in the settings file): keys press the console controller's buttons and move
 // its left stick, on player 1's port (or player 2's), together with any controller there. The keys are read only
-// while the game window has the focus, and the mouse buttons only with the pointer over the picture.
+// while the game window has the focus, and the mouse buttons only with the pointer over the picture. Held, Active
+// and Over read the window: Win32's here, SDL3's in keyboard_sdl.cpp.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -11,6 +12,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -33,6 +35,13 @@ namespace {
 struct Bindings {
     std::vector<uint8_t> vk[kCount];
 };
+
+// key names, any case
+bool SameName(const char* a, const char* b) {
+    for (; *a && *b; a++, b++)
+        if (std::tolower(uint8_t(*a)) != std::tolower(uint8_t(*b))) return false;
+    return *a == *b;
+}
 
 std::string Trim(const std::string& s) {
     size_t a = s.find_first_not_of(" \t"), b = s.find_last_not_of(" \t");
@@ -63,7 +72,7 @@ const Bindings& Get() {
                 if (name.empty()) continue;
                 bool found = false;
                 for (const Key& k : kKeys)
-                    if (_stricmp(k.name, name.c_str()) == 0) {
+                    if (SameName(k.name, name.c_str())) {
                         nb.vk[a].push_back(k.vk);
                         found = true;
                     }
@@ -95,7 +104,7 @@ float g_cam_x = 0, g_cam_y = 0;  // the same for the camera (the right stick, mo
 bool Down(uint8_t vk, bool mouse_ok, const uint64_t* latched) {
     bool mouse = vk <= 0x06 && vk != 0x03;
     if (mouse && !mouse_ok) return false;
-    bool down = (GetAsyncKeyState(vk) & 0x8000) != 0 || (latched[vk >> 6] & (1ull << (vk & 63)));
+    bool down = Held(vk) || (latched[vk >> 6] & (1ull << (vk & 63)));
     uint64_t bit = 1ull << (vk & 63);
     std::atomic<uint64_t>& w = g_swallowed[vk >> 6];
     if (w.load() & bit) {
@@ -116,7 +125,13 @@ void Latch(uint32_t vk) {
     else if (vk < 256) one(vk);
 }
 
+void MouseMove(int32_t dx, int32_t dy) {
+    g_mouse_dx += dx;
+    g_mouse_dy += dy;
+}
+
 void Mouse(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp) {
+#ifdef _WIN32
     static bool registered = false;
     if (!registered && hwnd) {
         RAWINPUTDEVICE d{0x01, 0x02, 0, static_cast<HWND>(hwnd)};  // generic desktop, mouse; no RIDEV_NOLEGACY
@@ -130,21 +145,31 @@ void Mouse(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp) {
             g_mouse_dx += r.data.mouse.lLastX;
             g_mouse_dy += r.data.mouse.lLastY;
         }
-    } else if (msg == WM_MOUSEWHEEL) {
+    } else
+#endif
+    if (msg == WM_MOUSEWHEEL) {
         g_wheel += GET_WHEEL_DELTA_WPARAM(wp);   // raw: a smooth wheel's small steps add up to a notch (Merge)
     }
-    (void)wp;
+    (void)hwnd, (void)lp;
 }
 
 void Swallow() {
     for (auto& w : g_latched) w = 0;
     for (const Key& k : kKeys)
-        if (GetAsyncKeyState(k.vk) & 0x8000) g_swallowed[k.vk >> 6] |= 1ull << (k.vk & 63);
+        if (Held(k.vk)) g_swallowed[k.vk >> 6] |= 1ull << (k.vk & 63);
 }
 
 bool Claims(int port) {
     const app::Settings& s = app::Get();
     return s.keyboard && uint32_t(port) + 1 == s.keyboard_player;
+}
+
+#ifdef _WIN32
+bool Held(uint32_t vk) { return (GetAsyncKeyState(int(vk)) & 0x8000) != 0; }
+
+bool Active() {
+    HWND w = static_cast<HWND>(app::Window());
+    return w && GetForegroundWindow() == w;
 }
 
 bool Over() {
@@ -155,6 +180,7 @@ bool Over() {
     if (!GetCursorPos(&p) || !ScreenToClient(w, &p) || !GetClientRect(w, &r)) return false;
     return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
 }
+#endif
 
 // input::Poll, after the game's own changes to the pad (kGame.pad): the keys go on top, so a layout made for the
 // controller does not move them
@@ -163,8 +189,7 @@ void Merge(int port, input::Pad& p) {
     if (!s.keyboard || uint32_t(port) + 1 != s.keyboard_player) return;
     const Bindings& b = Get();
     p.connected = true;  // the game sees a controller on the port, so the keys work without one plugged in
-    HWND w = static_cast<HWND>(app::Window());
-    if (!w || GetForegroundWindow() != w || app::OverlayOpen()) return;
+    if (!Active() || app::OverlayOpen()) return;
     bool mouse_ok = Over();
     bool menus = app::kGame.in_menus && app::kGame.in_menus();
     bool held[kCount] = {};

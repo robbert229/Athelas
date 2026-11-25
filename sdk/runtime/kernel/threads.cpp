@@ -153,6 +153,7 @@ void Spawn(std::function<void()> fn) {
     pthread_attr_setstacksize(&attr, 64u << 20);
     pthread_t th;
     int rc = pthread_create(&th, &attr, [](void* p) -> void* {
+        if (g_thread_started) g_thread_started();
         ApplyAffinity();
         std::unique_ptr<std::function<void()>> g(static_cast<std::function<void()>*>(p));
         (*g)();

@@ -92,13 +92,16 @@ namespace input {
 struct Pad;
 }
 
-// app/keyboard.cpp (Windows)
+// app/keyboard.cpp (Held, Active and Over: Win32's there, SDL3's in app/keyboard_sdl.cpp)
 namespace keys {
 void Merge(int port, input::Pad& pad);  // input::Poll: the keys onto the keyboard player's pad
 void Mouse(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp);  // window thread: raw mouse movement, the wheel
 void Latch(uint32_t vk);                 // window thread: a key or mouse button went down (WM_KEYDOWN...)
 bool Claims(int port);                   // the keyboard plays on this port
 bool Over();                             // the game window has the focus and the pointer is over its picture
+bool Held(uint32_t vk);                  // a key or mouse button is down now, by virtual-key code (GetAsyncKeyState)
+bool Active();                           // the game window has the focus (it is the foreground window)
+void MouseMove(int32_t dx, int32_t dy);  // window thread, SDL3: relative mouse movement (Win32: raw input in Mouse)
 std::string FirstKey(Action a);          // the first key bound to it ("Mouse1"), empty for none
 extern std::atomic<bool> g_used;         // a key has pressed something since the start
 }  // namespace keys

@@ -128,11 +128,16 @@ set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp PR
 file(GLOB XBE_RUNTIME_SOURCES CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/*/*.cpp)
 # off Windows: no Direct3D 12, upscalers or XAudio2, and the Win32 window and app layer is left out until its SDL3
 # replacement lands; app/posix_pending.cpp stands in for what they provided (notes/mac-linux-plan.md, M1)
-set(XBE_WIN32_ONLY_SOURCES gpu/d3d12.cpp gpu/upscale.cpp audio/xaudio2.cpp app/main.cpp app/keyboard.cpp
+set(XBE_WIN32_ONLY_SOURCES gpu/d3d12.cpp gpu/upscale.cpp audio/xaudio2.cpp app/main.cpp
     app/splash.cpp app/netplay_window.cpp app/discord.cpp app/system_info.cpp app/handover.cpp)
+# the SDL3 window layer (app/main_sdl.cpp and its kin) is the other way round: everywhere but Windows
+set(XBE_SDL_APP_SOURCES app/main_sdl.cpp app/keyboard_sdl.cpp app/screens_sdl.cpp app/crash_posix.cpp)
 if(WIN32)
     list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/app/posix_pending.cpp
          ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp)
+    foreach(f ${XBE_SDL_APP_SOURCES})
+        list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/${f})
+    endforeach()
 else()
     foreach(f ${XBE_WIN32_ONLY_SOURCES})
         list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/${f})
@@ -149,6 +154,9 @@ set_source_files_properties(${XBE_SDK_DIR}/runtime/gpu/vk.cpp ${XBE_SDK_DIR}/run
 if(NOT WIN32)
     set_property(SOURCE ${XBE_SDK_DIR}/runtime/gpu/vk.cpp ${XBE_SDK_DIR}/runtime/gpu/vk_loader.cpp
                  ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
+    foreach(f ${XBE_SDL_APP_SOURCES})
+        set_property(SOURCE ${XBE_SDK_DIR}/runtime/${f} APPEND PROPERTY INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
+    endforeach()
 endif()
 
 if(NOT WIN32)
