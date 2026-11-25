@@ -71,7 +71,7 @@ void HostTimeZone(uint8_t* user) {
         user[0x58] |= 2;
     }
 #else
-    // the test harness: today's offset, no daylight saving rules
+    // off Windows: today's offset, no daylight saving rules
     std::time_t now = std::time(nullptr);
     std::tm local{};
     localtime_r(&now, &local);

@@ -384,7 +384,7 @@ bool ReplaceMenuArt(const gpu::pack::Contents& t, gpu::pack::Image& out) {
         out.format = gpu::pack::Format::RGBA8;
         auto t0 = std::chrono::steady_clock::now();
         out.levels.push_back(Upscale(t.data, pitch));
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
         if (const char* dir = std::getenv("ROTK_FONT_DUMP"))  // test build: the replacement as a PNG
             gpu::pack::WritePng(std::string(dir) + "/upscaled" + std::to_string(n) + ".png", out.width, out.height, out.levels[0]);
 #endif
@@ -417,7 +417,7 @@ bool ReplaceMenuArt(const gpu::pack::Contents& t, gpu::pack::Image& out) {
             for (int i = 0; i < 3; i++) to[i] = uint8_t(std::clamp(c[i], 0.0f, 255.0f) + 0.5f);
             to[3] = 255;
         }
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
     if (const char* dir = std::getenv("ROTK_FONT_DUMP"))  // test build: the replacement as a PNG
         gpu::pack::WritePng(std::string(dir) + "/" + k.name + ".png", W, H, px);
 #endif

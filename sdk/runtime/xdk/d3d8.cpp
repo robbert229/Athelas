@@ -515,7 +515,7 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
             HMODULE nt = GetModuleHandleA("ntdll.dll");
             bool wine = nt && GetProcAddress(nt, "wine_get_version");
 #else
-            bool wine = false;  // (the Linux test build)
+            bool wine = false;  // (native Linux and Mac, and the test build)
 #endif
             // under Wine the driver isn't the problem: the Direct3D 12 translation layer is (review)
             app::Fail(app::kExitNoD3D12,

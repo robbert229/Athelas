@@ -276,7 +276,7 @@ bool Replace(const gpu::pack::Contents& t, gpu::pack::Image& out) {
                 px[i * 4 + k] = uint8_t(v + 0.5f);
             }
         }
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
         if (std::getenv("ROTK_FONT_DUMP")) {  // test build: the replacement as a PNG
             std::vector<uint8_t> rgba(px);
             for (size_t i = 0; i < rgba.size(); i += 4) std::swap(rgba[i], rgba[i + 2]);
