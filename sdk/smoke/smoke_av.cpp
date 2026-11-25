@@ -103,10 +103,12 @@ bool Vulkan(int frames) {
 
     auto start = std::chrono::steady_clock::now();
     for (int f = 0; f < frames || frames <= 0; f++) {
+#ifndef _WIN32  // (the window's own check; the smoke test's window is SDL's)
         if (!app::WindowAlive()) {
             LOGR("smoke: the window closed after %d frames", f);
             break;
         }
+#endif
         g_frame = f;
         float t = float(f) / 60.0f;
         uint32_t r = uint32_t(40 + 30 * std::sin(t)), g = uint32_t(40 + 30 * std::sin(t + 2)), bl = uint32_t(60 + 40 * std::sin(t + 4));
