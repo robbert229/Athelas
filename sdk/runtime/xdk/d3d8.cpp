@@ -522,8 +522,14 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
                       wine ? L"Neither Direct3D 12 nor Vulkan could start under Wine. On Linux and the Steam Deck, use "
                              L"Proton, or Wine with vkd3d-proton and a Vulkan graphics driver; on a Mac (CrossOver), turn "
                              L"on D3DMetal for the bottle. The log has the details."
+#ifdef _WIN32
                            : L"Neither Direct3D 12 nor Vulkan could start. Updating the graphics driver may help; the "
                              L"game needs a graphics card with Direct3D 12 or Vulkan 1.2. The log has the details.");
+#else
+                           : L"Vulkan could not start. The game needs a graphics card and driver with Vulkan 1.2 (on "
+                             L"Linux, Mesa or the vendor's driver with its Vulkan package installed). The log has the "
+                             L"details.");
+#endif
         }
         if (RenderThread()) g_backend = gpu::CreateThreadedBackend(std::move(g_backend));
     }
