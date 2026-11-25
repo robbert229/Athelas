@@ -75,3 +75,14 @@ Under Wine `xbe_port_check.exe --no-dialogs` runs the real `wWinMain` as far as 
 Off Windows, `runtime/app/posix_pending.cpp` stands in for the Win32 app files the build leaves out
 (`XBE_WIN32_ONLY_SOURCES` in `cmake/XbeRecomp.cmake`). Each stand in says what replaces it. Delete them as the real
 code lands.
+
+## Playing a native build from a script
+
+`vpad.py` plugs in a virtual Xbox 360 controller through uinput (`python3-evdev`, write access to `/dev/uinput`) and
+plays the harness's pad scripts on it (`sdk/harness/README.md`), a frame being 1/60 s; `--fifo <pipe>` then keeps it
+plugged in and presses what is written to the pipe (`A 8`, `LS+X 20`, `wait 30`). It answers the game's rumble and
+logs it. Off Windows `kill -USR1 <pid>` takes a screenshot, as the backslash key does, into `Screenshots`.
+
+`audio_level.sh <seconds> [sink]` records a sink's monitor and prints its level. With a null sink of its own
+(`pactl load-module module-null-sink sink_name=xbe_test`, then `PIPEWIRE_NODE=xbe_test` for the game) it measures the
+game alone, and nothing reaches the speakers.
