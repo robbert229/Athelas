@@ -32,6 +32,17 @@ ninja -C sdk/smoke/build xbe_port_check
 
 Until the SDL3 window layer lands, running it only prints that the window layer is missing.
 
+## Windows syntax check
+
+`wincheck.sh <source>...` compiles files for Windows (`-fsyntax-only`, clang targeting x86_64-w64-mingw32 with
+Fedora's mingw64 headers: `sudo dnf install mingw64-gcc-c++ mingw64-headers`), to catch Windows breakage from Linux.
+It covers the whole runtime, Direct3D 12, XAudio2 and the upscalers included. It needs the smoke build configured, for
+the dependencies, and `-DXBE_PORT` configured for a port's sources. For example, every file a branch changed:
+
+```
+sdk/smoke/wincheck.sh $(git diff --name-only origin/main -- '*.cpp')
+```
+
 ## Stand ins
 
 Off Windows, `runtime/app/posix_pending.cpp` stands in for the Win32 app files the build leaves out
