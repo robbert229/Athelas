@@ -1,7 +1,10 @@
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
+#include <string>
+#include <vector>
 
 #include "app/app.h"
 #include "kernel/kernel.h"
@@ -205,7 +208,28 @@ void Relaunch(const char* exe) {
     ssize_t n = readlink("/proc/self/exe", self, sizeof(self) - 1);
     std::string path = std::string(self, n > 0 ? size_t(n) : 0);
     path = path.substr(0, path.find_last_of('/') + 1) + exe;
+#ifdef XBE_HEADLESS
+    // the harness comes back without arguments (GAME_DIR names the game)
     execl(path.c_str(), path.c_str(), nullptr);
+#else
+    // the arguments kept (--config, --game, --log...), as on Windows: --relaunched added, --launcher dropped
+    std::vector<std::string> args{path};
+    std::ifstream line("/proc/self/cmdline", std::ios::binary);
+    bool first = true, marked = false;
+    for (std::string a; std::getline(line, a, '\0'); first = false) {
+        if (first || a == "--launcher") continue;
+        marked = marked || a == "--relaunched";
+        args.push_back(a);
+    }
+    if (!marked) args.push_back("--relaunched");
+    std::vector<char*> argv;
+    for (auto& a : args) argv.push_back(a.data());
+    argv.push_back(nullptr);
+    // the sockets would be inherited across exec and keep the new instance from binding the same ports
+    xnet::CloseSockets();
+    execv(path.c_str(), argv.data());
+    LOGE("relaunch: cannot start %s (%s)", path.c_str(), std::strerror(errno));
+#endif
     std::_Exit(0);
 #endif
 }
