@@ -1,5 +1,5 @@
-// Vulkan without an SDK or import library: vulkan-1.dll (the driver's loader, part of every Vulkan driver) is
-// opened at run time and its functions looked up. Nothing is linked and nothing ships; no Vulkan, no backend.
+// Vulkan without an SDK or import library: vulkan-1.dll (the driver's loader, part of every Vulkan driver; elsewhere
+// libvulkan.so.1) is opened at run time and its functions looked up. Nothing is linked and nothing ships; no Vulkan, no backend.
 #pragma once
 #ifndef VK_NO_PROTOTYPES
 #define VK_NO_PROTOTYPES
@@ -63,7 +63,7 @@ GPU_VK_DEVICE(GPU_VK_DECLARE)
 #undef GPU_VK_DECLARE
 extern PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 
-// opens vulkan-1.dll and loads the global functions; false (and why, in reason) when this PC has no Vulkan
+// opens vulkan-1.dll (libvulkan.so.1, or SDL's once its video is up) and loads the global functions; false (and why, in reason) when this PC has no Vulkan
 bool OpenLibrary(const char** reason);
 // the instance and device functions; a missing one is null (optional ones are checked before use)
 void LoadInstance(VkInstance instance);

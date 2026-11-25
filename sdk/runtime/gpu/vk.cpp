@@ -2,11 +2,19 @@
 // ring, render targets by console address, Clear, and Present showing the front buffer. Draws are not done yet: every
 // other call is a safe no-op, logged once.
 // Init failing (no Vulkan, no 1.2 device, no swapchain) leaves the game on Direct3D 12 (xdk/d3d8.cpp).
+#ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 #include <dxgi1_6.h>  // S11: whether the window's screen shows HDR (as Direct3D 12 asks)
+#else
+#include <SDL3/SDL_error.h>
+#include <SDL3/SDL_video.h>
+#include <SDL3/SDL_vulkan.h>
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -14,6 +22,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <mutex>
 #include <filesystem>
@@ -29,7 +38,9 @@
 #endif
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
+#ifdef _WIN32
 #include <backends/imgui_impl_win32.h>
+#endif
 
 #include "app/app.h"
 #include "core/diag.h"
@@ -61,22 +72,85 @@ constexpr uint32_t kFrames = 2;  // frames in flight
 const bool g_vk_perf = [] { const char* e = std::getenv("XBE_PERF"); return e && *e && *e != '0'; }();
 struct PerfAdd {
     double* acc;
-    LARGE_INTEGER t0{};
+    std::chrono::steady_clock::time_point t0{};
     explicit PerfAdd(double& a) : acc(g_vk_perf ? &a : nullptr) {
-        if (acc) QueryPerformanceCounter(&t0);
+        if (acc) t0 = std::chrono::steady_clock::now();
     }
     ~PerfAdd() {
-        if (!acc) return;
-        static const double per_ms = [] {
-            LARGE_INTEGER f;
-            QueryPerformanceFrequency(&f);
-            return double(f.QuadPart) / 1000.0;
-        }();
-        LARGE_INTEGER t1;
-        QueryPerformanceCounter(&t1);
-        *acc += double(t1.QuadPart - t0.QuadPart) / per_ms;
+        if (acc) *acc += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     }
 };
+
+// milliseconds from an arbitrary start
+uint64_t TickMs() {
+#ifdef _WIN32
+    return ::GetTickCount64();
+#else
+    using namespace std::chrono;
+    return uint64_t(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+#endif
+}
+
+// a file by path: UTF-16 names on Windows, UTF-8 elsewhere
+FILE* OpenFile(const std::filesystem::path& p, const char* mode) {
+#ifdef _WIN32
+    wchar_t m[8]{};
+    for (size_t i = 0; mode[i] && i < 7; i++) m[i] = wchar_t(mode[i]);
+    return _wfopen(p.c_str(), m);
+#else
+    return std::fopen(p.c_str(), mode);
+#endif
+}
+
+// the game window (app::Window: the HWND on Windows, the SDL_Window elsewhere) is still there
+bool GameWindowAlive() {
+#ifdef _WIN32
+    return ::IsWindow(static_cast<HWND>(app::Window()));
+#else
+    return app::WindowAlive();
+#endif
+}
+
+// the game window's drawable size in pixels
+VkExtent2D GameWindowPixels() {
+#ifdef _WIN32
+    RECT rc{};
+    ::GetClientRect(static_cast<HWND>(app::Window()), &rc);
+    return {uint32_t(std::max<LONG>(rc.right - rc.left, 1)), uint32_t(std::max<LONG>(rc.bottom - rc.top, 1))};
+#else
+    uint32_t w = 0, h = 0;
+    app::WindowPixelSize(w, h);
+    return {std::max(w, 1u), std::max(h, 1u)};
+#endif
+}
+
+// the local time, for file names
+struct LocalTime {
+    unsigned year, month, day, hour, minute, second, ms;
+};
+LocalTime Now() {
+#ifdef _WIN32
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    return {st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds};
+#else
+    timespec ts{};
+    clock_gettime(CLOCK_REALTIME, &ts);
+    std::tm t{};
+    localtime_r(&ts.tv_sec, &t);
+    return {unsigned(t.tm_year + 1900), unsigned(t.tm_mon + 1), unsigned(t.tm_mday), unsigned(t.tm_hour),
+            unsigned(t.tm_min), unsigned(t.tm_sec), unsigned(ts.tv_nsec / 1000000)};
+#endif
+}
+
+// the calling thread behind the game's own (the pipeline warm-up)
+void LowerPriority() {
+#ifdef _WIN32
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#elif defined(__linux__)
+    setpriority(PRIO_PROCESS, id_t(gettid()), 5);  // a thread's own nice value
+#endif
+}
 
 // S15: a shaders.seed entry (Direct3D 12's layout: entry point, profile, HLSL); vs_* and ps_* compile to SPIR-V too,
 // as both renderers make their game shaders from the same generators
@@ -173,6 +247,7 @@ private:
 
     bool CreateInstance();
     bool CreateSurface();
+    bool SurfaceLost();
     bool PickDevice();
     bool CreateDevice();
     bool CreateSwapchain();
@@ -568,7 +643,7 @@ private:
     VkColorSpaceKHR swap_cs_ = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     float hdr_paper_ = 200.0f / 80.0f;  // normal scenes and the HUD at 200 nits, in scRGB units (as Direct3D 12)
     float hdr_peak_ = 600.0f / 80.0f;   // the screen's peak, read from it
-    static bool HdrScreen(HWND hwnd, float& max_nits);
+    static bool HdrScreen(float& max_nits);
     // the screen pass's hdr row (Direct3D 12's: on, paper white, peak over paper), for the swapchain blits only
     void HdrConstants(float c[32]) const {
         c[12] = hdr_ ? 1.0f : 0.0f;
@@ -693,7 +768,7 @@ std::filesystem::path SpvPath(uint64_t hash) {
 
 // whole SPIR-V words with the magic number first; anything else is compiled again
 bool ReadSpv(uint64_t hash, std::vector<uint32_t>& code) {
-    FILE* f = _wfopen(SpvPath(hash).c_str(), L"rb");
+    FILE* f = OpenFile(SpvPath(hash), "rb");
     if (!f) return false;
     bool ok = false;
     if (std::fseek(f, 0, SEEK_END) == 0) {
@@ -715,8 +790,8 @@ void WriteFileAtomic(const std::filesystem::path& file, const void* data, size_t
     std::filesystem::create_directories(file.parent_path(), ec);
     static std::atomic<uint32_t> seq{0};
     std::filesystem::path tmp = file;
-    tmp += ".tmp" + std::to_string(GetCurrentThreadId()) + "_" + std::to_string(seq++);
-    FILE* f = _wfopen(tmp.c_str(), L"wb");
+    tmp += ".tmp" + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())) + "_" + std::to_string(seq++);
+    FILE* f = OpenFile(tmp, "wb");
     if (!f) return;
     bool ok = std::fwrite(data, 1, size, f) == size;
     ok = std::fclose(f) == 0 && ok;
@@ -737,7 +812,7 @@ bool ReadSeedString(FILE* f, std::string& out) {
 
 std::vector<SeedSrc> ReadShaderSeed(const std::filesystem::path& file) {
     std::vector<SeedSrc> v;
-    FILE* f = _wfopen(file.c_str(), L"rb");
+    FILE* f = OpenFile(file, "rb");
     if (!f) return v;
     char magic[4];
     if (std::fread(magic, 4, 1, f) == 1 && !std::memcmp(magic, "ASS1", 4)) {
@@ -788,9 +863,17 @@ bool VkBackend::CreateInstance() {
     std::vector<VkExtensionProperties> ext(n);
     vkEnumerateInstanceExtensionProperties(nullptr, &n, ext.data());
     ext.resize(n);
-    for (const char* need : {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME})
-        if (!HasExtension(ext, need)) return Fail(std::string("the instance has no ") + need);
+#ifdef _WIN32
     std::vector<const char*> names = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
+#else
+    // the ones SDL makes the window's surface with (the surface extension and X11's or Wayland's)
+    uint32_t sn = 0;
+    const char* const* sdl_names = SDL_Vulkan_GetInstanceExtensions(&sn);
+    if (!sdl_names) return Fail(std::string("SDL_Vulkan_GetInstanceExtensions: ") + SDL_GetError());
+    std::vector<const char*> names(sdl_names, sdl_names + sn);
+#endif
+    for (const char* need : names)
+        if (!HasExtension(ext, need)) return Fail(std::string("the instance has no ") + need);
     // S11: the HDR colour space (scRGB, EXTENDED_SRGB_LINEAR) is offered only with this extension
     colorspace_ext_ = HasExtension(ext, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
     if (colorspace_ext_) names.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
@@ -841,7 +924,10 @@ bool VkBackend::CreateInstance() {
     VkResult r = vkCreateInstance(&ci, nullptr, &instance_);
     if (r != VK_SUCCESS) return Fail("vkCreateInstance", r);
     LoadInstance(instance_);
-    if (!vkCreateWin32SurfaceKHR || !vkEnumeratePhysicalDevices || !vkGetDeviceProcAddr)
+#ifdef _WIN32
+    if (!vkCreateWin32SurfaceKHR) return Fail("the instance functions could not be loaded");
+#endif
+    if (!vkEnumeratePhysicalDevices || !vkGetDeviceProcAddr)
         return Fail("the instance functions could not be loaded");
     if (validate_ && vkCreateDebugUtilsMessengerEXT) {
         VkDebugUtilsMessengerCreateInfoEXT mi{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
@@ -871,12 +957,19 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VkBackend::DebugMessage(VkDebugUtilsMessageSeveri
 }
 
 bool VkBackend::CreateSurface() {
+#ifdef _WIN32
     VkWin32SurfaceCreateInfoKHR ci{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
     ci.hinstance = ::GetModuleHandleW(nullptr);
     ci.hwnd = static_cast<HWND>(app::Window());
     if (!ci.hwnd) return Fail("there is no game window");
     VkResult r = vkCreateWin32SurfaceKHR(instance_, &ci, nullptr, &surface_);
     if (r != VK_SUCCESS) return Fail("vkCreateWin32SurfaceKHR", r);
+#else
+    SDL_Window* w = static_cast<SDL_Window*>(app::Window());
+    if (!w) return Fail("there is no game window");
+    if (!SDL_Vulkan_CreateSurface(w, instance_, nullptr, &surface_))
+        return Fail(std::string("SDL_Vulkan_CreateSurface: ") + SDL_GetError());
+#endif
     return true;
 }
 
@@ -1072,8 +1165,9 @@ bool VkBackend::CreateDevice() {
 }
 
 // the window's screen shows HDR (Windows HDR on): max_nits its peak brightness (Direct3D 12's HdrScreen, through DXGI)
-bool VkBackend::HdrScreen(HWND hwnd, float& max_nits) {
-    HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+#ifdef _WIN32
+bool VkBackend::HdrScreen(float& max_nits) {
+    HMONITOR mon = MonitorFromWindow(static_cast<HWND>(app::Window()), MONITOR_DEFAULTTONEAREST);
     IDXGIFactory1* f = nullptr;
     if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&f)))) return false;
     bool hdr = false, found = false;
@@ -1102,11 +1196,29 @@ bool VkBackend::HdrScreen(HWND hwnd, float& max_nits) {
     f->Release();
     return hdr;
 }
+#else
+// elsewhere SDL's word for the window (Wayland's colour management, where the compositor has it; never on X11): its
+// SDR white and headroom are in scRGB units, 80 nits each
+bool VkBackend::HdrScreen(float& max_nits) {
+    SDL_PropertiesID p = SDL_GetWindowProperties(static_cast<SDL_Window*>(app::Window()));
+    if (!p || !SDL_GetBooleanProperty(p, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false)) return false;
+    float white = SDL_GetFloatProperty(p, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f);
+    float headroom = SDL_GetFloatProperty(p, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
+    max_nits = 80.0f * white * headroom;
+    return true;
+}
+#endif
 
 bool VkBackend::CreateSwapchain() {
     VkSurfaceCapabilitiesKHR caps{};
     VkResult r = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu_, surface_, &caps);
-    if (r == VK_ERROR_SURFACE_LOST_KHR && !::IsWindow(static_cast<HWND>(app::Window()))) {
+#ifndef _WIN32
+    if (r == VK_ERROR_SURFACE_LOST_KHR && GameWindowAlive()) {
+        if (!SurfaceLost()) return false;
+        r = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu_, surface_, &caps);
+    }
+#endif
+    if (r == VK_ERROR_SURFACE_LOST_KHR && !GameWindowAlive()) {
         // the window closed while a frame was on its way (the game is exiting): nothing to show it in, not an error
         DestroySwapchain();
         extent_ = {0, 0};
@@ -1114,10 +1226,8 @@ bool VkBackend::CreateSwapchain() {
     }
     if (r != VK_SUCCESS) return Fail("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", r);
     VkExtent2D ext = caps.currentExtent;
-    if (ext.width == 0xFFFFFFFFu) {
-        RECT rc{};
-        ::GetClientRect(static_cast<HWND>(app::Window()), &rc);
-        ext = {uint32_t(std::max<LONG>(rc.right - rc.left, 1)), uint32_t(std::max<LONG>(rc.bottom - rc.top, 1))};
+    if (ext.width == 0xFFFFFFFFu) {  // the window's size is the swapchain's to choose (Wayland)
+        ext = GameWindowPixels();
         ext.width = std::clamp(ext.width, caps.minImageExtent.width, caps.maxImageExtent.width);
         ext.height = std::clamp(ext.height, caps.minImageExtent.height, caps.maxImageExtent.height);
     }
@@ -1134,7 +1244,7 @@ bool VkBackend::CreateSwapchain() {
     // normal picture
     hdr_wanted_ = app::Get().hdr;
     float nits = 0;
-    bool hdr = hdr_wanted_ && colorspace_ext_ && HdrScreen(static_cast<HWND>(app::Window()), nits);
+    bool hdr = hdr_wanted_ && colorspace_ext_ && HdrScreen(nits);
     {
         uint32_t n = 0;
         vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &n, nullptr);
@@ -1255,6 +1365,20 @@ bool VkBackend::CreateSwapchain() {
         ui_ = false;
         if (!MakeUiBackend()) LOGE("vulkan: the menu could not be set up for the new screen format: %s", error_.c_str());
     }
+    return true;
+}
+
+// not on Windows: the surface lost while the window is still there (the compositor restarted, the window's native
+// surface made again): a new surface for the same window, on the same device; the device must be idle
+bool VkBackend::SurfaceLost() {
+    LOGR("vulkan: the window's surface was lost, making it again");
+    DestroySwapchain();
+    vkDestroySurfaceKHR(instance_, surface_, nullptr);
+    surface_ = VK_NULL_HANDLE;
+    if (!CreateSurface()) return false;
+    VkBool32 present = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(gpu_, family_, surface_, &present);
+    if (!present) return Fail("the window's new surface can't be presented to from the drawing queue");
     return true;
 }
 
@@ -2785,7 +2909,7 @@ bool VkBackend::CreateDrawResources() {
     // drivers are not all careful with another device's data
     VkPipelineCacheCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     std::vector<uint8_t> saved;
-    if (FILE* f = _wfopen((app::ShaderCacheDir() / "vk_pipeline_cache.bin").c_str(), L"rb")) {
+    if (FILE* f = OpenFile(app::ShaderCacheDir() / "vk_pipeline_cache.bin", "rb")) {
         if (std::fseek(f, 0, SEEK_END) == 0) {
             long n = std::ftell(f);
             if (n >= 32 && n < (512l << 20)) {
@@ -3673,7 +3797,7 @@ void VkBackend::StartWarmUp() {
     want.key_size = sizeof(PipeKey);
     std::vector<PipeKey> keys;
     auto read = [&](const std::filesystem::path& from, bool own) {
-        FILE* f = _wfopen(from.c_str(), L"rb");
+        FILE* f = OpenFile(from, "rb");
         if (!f) return false;
         PipeListHeader have;
         bool ok = std::fread(&have, sizeof(have), 1, f) == 1 && !std::memcmp(&have, &want, sizeof(want));
@@ -3692,7 +3816,7 @@ void VkBackend::StartWarmUp() {
     std::error_code ec;
     std::filesystem::create_directories(file.parent_path(), ec);
     // a list from another build's key layout (or a damaged one) is started again
-    pipe_list_ = _wfopen(file.c_str(), fresh ? L"wb" : L"ab");
+    pipe_list_ = OpenFile(file, fresh ? "wb" : "ab");
     if (pipe_list_ && fresh) {
         std::fwrite(&want, sizeof(want), 1, pipe_list_);
         std::fflush(pipe_list_);
@@ -3710,7 +3834,7 @@ void VkBackend::StartWarmUp() {
 }
 
 void VkBackend::WarmUp(std::vector<PipeKey> keys, std::vector<SeedSrc> seed) {
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    LowerPriority();
     auto start = std::chrono::steady_clock::now();
     auto secs = [&] {
         return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -3728,7 +3852,7 @@ void VkBackend::WarmUp(std::vector<PipeKey> keys, std::vector<SeedSrc> seed) {
         std::vector<std::thread> pool;
         for (unsigned t = 0; t < n && !todo.empty(); t++)
             pool.emplace_back([&] {
-                SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+                LowerPriority();
                 for (size_t i; !warm_stop_ && (i = next++) < todo.size();) {
                     const SeedSrc& s = seed[todo[i]];
                     spirv::Stage st = s.profile[0] == 'v' ? spirv::Stage::Vertex : spirv::Stage::Pixel;
@@ -4912,7 +5036,11 @@ void VkBackend::RenderUi(VkCommandBuffer cb, uint32_t index) {
     if (!ui_) return;
     std::lock_guard lock(app::UiLock());
     ImGui_ImplVulkan_NewFrame();
+#ifdef _WIN32
     ImGui_ImplWin32_NewFrame();
+#else
+    app::ImGuiPlatformNewFrame();
+#endif
     ImGui::NewFrame();
     if (app::kGame.ui) app::kGame.ui(fps_);
     app::DrawOverlay(fps_);
@@ -4956,7 +5084,7 @@ void VkBackend::RenderUi(VkCommandBuffer cb, uint32_t index) {
 
 // presents a second, counted over half a second
 void VkBackend::CountFps() {
-    uint64_t now = ::GetTickCount64();
+    uint64_t now = TickMs();
     if (!fps_start_) fps_start_ = now;
     fps_frames_++;
     if (now - fps_start_ >= 500) {
@@ -5693,13 +5821,12 @@ void VkBackend::Screenshot(Target& t, const std::string& suffix) {
         std::swap(px[i], px[i + 2]);
         px[i + 3] = 255;
     }
-    SYSTEMTIME st;
-    GetLocalTime(&st);
+    LocalTime st = Now();
     std::string prefix = app::kGame.log;
     std::transform(prefix.begin(), prefix.end(), prefix.begin(), [](unsigned char ch) { return char(std::toupper(ch)); });
     char name[96];
-    std::snprintf(name, sizeof(name), "%s_%04u-%02u-%02u_%02u-%02u-%02u_%03u.png", prefix.c_str(), st.wYear, st.wMonth,
-                  st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    std::snprintf(name, sizeof(name), "%s_%04u-%02u-%02u_%02u-%02u-%02u_%03u.png", prefix.c_str(), st.year, st.month,
+                  st.day, st.hour, st.minute, st.second, st.ms);
     std::filesystem::path file = app::ScreenshotDir() / (suffix.empty() ? std::string(name) : prefix + suffix);
     pack::WritePngLater(file, w, h, std::move(px));
     LOGR("screenshot: %s (%ux%u)", file.string().c_str(), w, h);
@@ -5708,16 +5835,15 @@ void VkBackend::Screenshot(Target& t, const std::string& suffix) {
 // ---- F3 frame captures (S2)
 
 void VkBackend::StartCapture() {
-    SYSTEMTIME tm;
-    GetLocalTime(&tm);
+    LocalTime tm = Now();
     char stamp[32];
-    snprintf(stamp, sizeof(stamp), "%02u%02u%02u_%03u", tm.wHour, tm.wMinute, tm.wSecond, tm.wMilliseconds);
+    snprintf(stamp, sizeof(stamp), "%02u%02u%02u_%03u", tm.hour, tm.minute, tm.second, tm.ms);
     std::error_code ec;
     // beside the log folder: logs\..\captures by default, or next to a launcher's log (as Direct3D 12)
     std::filesystem::path base = app::Args().log.empty() ? app::ExeDir() : app::LogFolder();
     cap_dir_ = std::filesystem::weakly_canonical(base / diag::CaptureDir() / stamp, ec);
     std::filesystem::create_directories(cap_dir_, ec);
-    cap_ = _wfopen((cap_dir_ / "frame.txt").c_str(), L"w");
+    cap_ = OpenFile(cap_dir_ / "frame.txt", "w");
     cap_i_ = cap_rt_ = 0;
     cap_seen_.clear();
     cap_sh_.clear();
@@ -5866,7 +5992,7 @@ void VkBackend::CaptureShader(const char* kind, uint64_t key, const std::string&
     if (!cap_sh_.insert(key).second) return;
     char name[48];
     snprintf(name, sizeof(name), "%s_%016llX.hlsl", kind, (unsigned long long)key);
-    if (FILE* f = _wfopen((cap_dir_ / name).c_str(), L"w")) {
+    if (FILE* f = OpenFile(cap_dir_ / name, "w")) {
         fwrite(src.data(), 1, src.size(), f);
         fclose(f);
     }
@@ -5943,11 +6069,10 @@ void VkBackend::Present(const Surface& front) {
         g_pack_off = !g_pack_off;
         pair_step_ = 0;
     } else if (t && g_pack_pair.exchange(false)) {
-        SYSTEMTIME st;
-        GetLocalTime(&st);
+        LocalTime st = Now();
         char nm[64];
-        std::snprintf(nm, sizeof(nm), "_%04u-%02u-%02u_%02u-%02u-%02u", st.wYear, st.wMonth, st.wDay, st.wHour,
-                      st.wMinute, st.wSecond);
+        std::snprintf(nm, sizeof(nm), "_%04u-%02u-%02u_%02u-%02u-%02u", st.year, st.month, st.day, st.hour,
+                      st.minute, st.second);
         pair_name_ = nm;
         Screenshot(*t, pair_name_ + (g_pack_off ? "_original.png" : "_pack.png"));
         g_pack_off = !g_pack_off;
@@ -5974,10 +6099,18 @@ void VkBackend::Present(const Surface& front) {
         DeviceLost("acquire", r);
         return;
     }
-    if (r == VK_ERROR_SURFACE_LOST_KHR && !::IsWindow(static_cast<HWND>(app::Window()))) {
+    if (r == VK_ERROR_SURFACE_LOST_KHR && !GameWindowAlive()) {
         Submit(false);  // the window closed (the game is exiting): the frame's work still runs, nothing is shown
         return;
     }
+#ifndef _WIN32
+    if (r == VK_ERROR_SURFACE_LOST_KHR) {  // a new surface; this frame is not shown
+        Submit(true);
+        vkDeviceWaitIdle(device_);
+        if (!SurfaceLost() || !CreateSwapchain()) LOG_FIRST(4, "vulkan: the window's surface could not be made again: %s", error_.c_str());
+        return;
+    }
+#endif
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) {
         LOG_FIRST(4, "vulkan: vkAcquireNextImageKHR failed (%s)", ResultName(r));
         Submit(false);
@@ -5987,11 +6120,11 @@ void VkBackend::Present(const Surface& front) {
     presents_seen_ = presents_;
     ReleaseOldTextures();
     if (t) ReadyRes(*t);  // an anti-aliased frame resolved before the screen pass reads it (S14)
-    if (unsaved_ >= 64 || (unsaved_ && ::GetTickCount64() - saved_at_ > 60000)) {
+    if (unsaved_ >= 64 || (unsaved_ && TickMs() - saved_at_ > 60000)) {
         // new pipelines made while drawing: the driver's cache saved now (64 of them, or any after a minute), so a
         // crash or a closed window keeps them (S15; a minute, not 10 s: a big cache's save is a short hitch)
         unsaved_ = 0;
-        saved_at_ = ::GetTickCount64();
+        saved_at_ = TickMs();
         SavePipelineCache();
         LOGI("vulkan: pipelines so far: %u made while drawing, %u from the warm-up", made_drawing_, made_warm_);
     }
@@ -6067,6 +6200,11 @@ void VkBackend::Present(const Surface& front) {
         if (!CreateSwapchain()) LOG_FIRST(4, "vulkan: the swapchain could not be made again: %s", error_.c_str());
     } else if (r == VK_ERROR_DEVICE_LOST) {
         DeviceLost("present", r);
+#ifndef _WIN32
+    } else if (r == VK_ERROR_SURFACE_LOST_KHR && GameWindowAlive()) {
+        vkDeviceWaitIdle(device_);
+        if (!SurfaceLost() || !CreateSwapchain()) LOG_FIRST(4, "vulkan: the window's surface could not be made again: %s", error_.c_str());
+#endif
     } else if (r != VK_SUCCESS) {
         LOG_FIRST(4, "vulkan: vkQueuePresentKHR failed (%s)", ResultName(r));
     }

@@ -1,5 +1,6 @@
 #pragma once
 // A game's additions to the D3D12 renderer: hooks at fixed points of the console path, none of which run without one
+#ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -9,6 +10,9 @@
 #include <windows.h>
 #include <d3d12.h>
 #include <wrl/client.h>
+#else
+#include <dxgiformat.h>
+#endif
 
 #include <cstdint>
 #include <memory>
@@ -20,6 +24,7 @@
 
 namespace gpu {
 
+#ifdef _WIN32
 // a console surface the renderer draws into
 struct Target {
     Microsoft::WRL::ComPtr<ID3D12Resource> res;
@@ -66,6 +71,15 @@ public:
     virtual void GuestSize(uint32_t& w, uint32_t& h) const = 0;       // the title's back buffer
     virtual uint64_t Presents() const = 0;
 };
+#else
+// elsewhere only the Vulkan renderer runs: a target as it describes one to Sampled, and no Context to lend
+struct Target {
+    bool depth = false;
+    uint32_t gw = 0, gh = 0, w = 0, h = 0;
+    uint32_t data = 0;
+};
+class Context;
+#endif
 
 class Extension {
 public:
