@@ -39,6 +39,7 @@
 #include "core/input.h"
 #include "core/keys.h"
 #include "core/log.h"
+#include "gpu/backend.h"
 #include "image_symbols.h"
 #include "kernel/kernel.h"
 #include "xdk/netplay.h"
@@ -214,6 +215,13 @@ void InstallTermHandler() {
     sa.sa_flags = SA_RESTART;
     sigaction(SIGINT, &sa, nullptr);
     sigaction(SIGTERM, &sa, nullptr);
+    // SIGUSR1: a screenshot, as the backslash key, for scripted tests that can't give the window the keyboard
+    // (sdk/smoke/vpad.py plays the controller)
+    struct sigaction shot{};
+    shot.sa_handler = [](int) { gpu::g_screenshot = true; };
+    sigemptyset(&shot.sa_mask);
+    shot.sa_flags = SA_RESTART;
+    sigaction(SIGUSR1, &shot, nullptr);
 }
 
 bool Gamescope() {
