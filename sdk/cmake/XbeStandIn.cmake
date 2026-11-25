@@ -1,6 +1,7 @@
 # A stand in for an image's generated code, for builds without the game's xbe: image_symbols.h,
-# x86_recomp_shared.h and x86_func_mapping.cpp, as xbe_recomp writes them for a symbol the image lacks. Every function
-# symbol gets a placeholder address whose body traps; data symbols keep their address, or 0.
+# x86_recomp_shared.h and x86_func_mapping.cpp, as xbe_recomp writes them for a symbol the image lacks. A function
+# symbol keeps its address, or gets a placeholder one; data symbols keep their address, or 0. Every function has a
+# recompiled body that traps (weak, so host overrides still win), so the whole program links.
 #   xbe_stand_in(<out folder> TOML <config or signatures>... [SCAN <sources>...])
 # TOML: the names (and addresses, when set) under [symbols] and [data]. SCAN: the recompiled functions those sources
 # name (sub_XXXXXXXX, __imp__sub_XXXXXXXX) are declared too, so a game's own sources compile.
@@ -55,10 +56,6 @@ function(xbe_stand_in out)
             string(APPEND syms "#define SYM_${name} ${hex}\n#define HAS_${name} ${has}\n")
             if(section STREQUAL "symbols")
                 list(APPEND funcs sub_${hex})
-                if(has EQUAL 0)
-                    string(APPEND trap "\nX86_FUNC(__imp__sub_${hex}) { x86_trap(ctx, 0x${hex}u, \"not in this image\"); }\n"
-                                       "X86_WEAK_FUNC(sub_${hex}, __imp__sub_${hex})\n")
-                endif()
             endif()
         endforeach()
     endforeach()
@@ -73,6 +70,9 @@ function(xbe_stand_in out)
     set(shared "#pragma once\n#include \"cpu/x86_ops.h\"\n\n")
     foreach(f ${funcs})
         string(APPEND shared "X86_EXTERN_FUNC(${f});\n")
+        string(SUBSTRING ${f} 4 -1 hex)
+        string(APPEND trap "\nX86_FUNC(__imp__${f}) { x86_trap(ctx, 0x${hex}u, \"not in this image\"); }\n"
+                           "X86_WEAK_FUNC(${f}, __imp__${f})\n")
     endforeach()
     set(map "#include \"x86_recomp_shared.h\"\n\n")
     string(APPEND map "const uint32_t X86CodeBase = 0x10000u;\nconst uint32_t X86CodeEnd = 0x10000u;\n")
