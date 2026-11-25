@@ -47,6 +47,7 @@ namespace {
 std::vector<std::string> g_argv;
 std::thread::id g_main_thread;
 SDL_Window* g_window = nullptr;
+std::atomic<SDL_WindowID> g_window_id{0};  // its id, for other threads (SDL_GetWindowID is the window thread's)
 std::atomic<bool> g_alive{false};
 std::atomic<uint32_t> g_pixel_w{0}, g_pixel_h{0};
 std::atomic<bool> g_looping{false}, g_loop_done{false};
@@ -55,6 +56,10 @@ uint32_t g_call_event = 0;   // a function to run on the window thread (RunOnWin
 bool g_quit = false;         // window thread: the loop ends
 bool g_exclusive = false;    // window thread: fullscreen in a mode other than the desktop's
 float g_motion_x = 0, g_motion_y = 0;  // window thread: relative movement's fractions, kept for the next event
+// the window's HDR state, read by the window thread (SDL wants its window properties read there) for the renderer
+std::mutex g_hdr_mutex;
+bool g_hdr = false;
+float g_hdr_white = 1.0f, g_hdr_headroom = 1.0f;
 
 // UTF-32 (Linux's wchar_t) to UTF-8
 std::string Utf8(const std::wstring& w) {
@@ -150,6 +155,15 @@ void UpdatePixelSize() {
     }
 }
 
+// window thread: the window's HDR state again, as it is shown and when SDL says it changed
+void UpdateHdr() {
+    SDL_PropertiesID p = g_window ? SDL_GetWindowProperties(g_window) : 0;
+    std::lock_guard lock(g_hdr_mutex);
+    g_hdr = p && SDL_GetBooleanProperty(p, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+    g_hdr_white = p ? SDL_GetFloatProperty(p, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f) : 1.0f;
+    g_hdr_headroom = p ? SDL_GetFloatProperty(p, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f) : 1.0f;
+}
+
 bool Gamescope() {
     // as main.cpp: gamescope (Steam Deck Game Mode) scales the game itself and owns the screen
     static const bool gamescope = [] {
@@ -231,6 +245,7 @@ void ShowWindow() {
     SDL_RaiseWindow(g_window);
     SDL_SyncWindow(g_window);
     UpdatePixelSize();
+    UpdateHdr();
     LogPlace();
 }
 
@@ -362,7 +377,10 @@ void Handle(const SDL_Event& e) {
             // windowed onto a screen of another scale: the picture kept at the size asked for in pixels
             if (Get().display_mode == DisplayMode::Windowed) ApplyNow();
             UpdatePixelSize();
+            UpdateHdr();
             break;
+        case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
+        case SDL_EVENT_WINDOW_HDR_STATE_CHANGED: UpdateHdr(); break;
         case SDL_EVENT_DISPLAY_ADDED:
         case SDL_EVENT_DISPLAY_REMOVED:
         case SDL_EVENT_DISPLAY_DESKTOP_MODE_CHANGED:
@@ -496,7 +514,7 @@ void OpenGameWindow(bool apply) {
 void CloseGameWindow() {
     SDL_Event e{};
     e.type = SDL_EVENT_WINDOW_CLOSE_REQUESTED;
-    e.window.windowID = g_window ? SDL_GetWindowID(g_window) : 0;
+    e.window.windowID = g_window_id;
     if (!g_window || !SDL_PushEvent(&e)) {
         e.type = SDL_EVENT_QUIT;
         SDL_PushEvent(&e);
@@ -516,6 +534,13 @@ bool StartVideo() {
     if (SDL_InitSubSystem(SDL_INIT_VIDEO)) return true;
     LOGE("window: SDL's video didn't start: %s", SDL_GetError());
     return false;
+}
+
+bool WindowHdr(float& white, float& headroom) {
+    std::lock_guard lock(g_hdr_mutex);
+    white = g_hdr_white;
+    headroom = g_hdr_headroom;
+    return g_hdr;
 }
 
 }  // namespace sdl
@@ -538,8 +563,10 @@ bool StartWindow(bool show) {
         LOGE("window: SDL couldn't make the window: %s", SDL_GetError());
         return false;
     }
+    g_window_id = SDL_GetWindowID(g_window);
     g_alive = true;
     ApplyNow();
+    UpdateHdr();
     if (show) ShowWindow();
 
     IMGUI_CHECKVERSION();

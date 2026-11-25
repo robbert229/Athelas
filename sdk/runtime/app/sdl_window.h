@@ -19,5 +19,7 @@ SDL_DisplayID Display();
 void ScreensChanged();                    // window thread: a display was added, removed or changed mode
 void LogScreens();                        // each screen's setting name, SDL name and desktop mode
 bool StartVideo();                        // main thread: SDL's video, once (the app's name and hints first)
+// any thread: the game window shows HDR, with its SDR white and headroom in scRGB units, as the window thread last read
+bool WindowHdr(float& white, float& headroom);
 void InstallCrashHandler();               // crash_posix.cpp: at start, on the main thread
 }  // namespace app::sdl

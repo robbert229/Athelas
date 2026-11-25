@@ -43,6 +43,9 @@
 #endif
 
 #include "app/app.h"
+#ifndef _WIN32
+#include "app/sdl_window.h"
+#endif
 #include "core/diag.h"
 #include "core/log.h"
 #include "gpu/backend.h"
@@ -1201,13 +1204,11 @@ bool VkBackend::HdrScreen(float& max_nits) {
     return hdr;
 }
 #else
-// elsewhere SDL's word for the window (Wayland's colour management, where the compositor has it; never on X11): its
-// SDR white and headroom are in scRGB units, 80 nits each
+// elsewhere SDL's word for the window (Wayland's colour management, where the compositor has it; never on X11), as
+// the window thread last read it: its SDR white and headroom are in scRGB units, 80 nits each
 bool VkBackend::HdrScreen(float& max_nits) {
-    SDL_PropertiesID p = SDL_GetWindowProperties(static_cast<SDL_Window*>(app::Window()));
-    if (!p || !SDL_GetBooleanProperty(p, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false)) return false;
-    float white = SDL_GetFloatProperty(p, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f);
-    float headroom = SDL_GetFloatProperty(p, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
+    float white = 1.0f, headroom = 1.0f;
+    if (!app::sdl::WindowHdr(white, headroom)) return false;
     max_nits = 80.0f * white * headroom;
     return true;
 }
