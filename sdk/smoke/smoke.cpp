@@ -1,5 +1,5 @@
 // xbe_smoke: the runtime started without a game, as far as each platform's host side goes so far.
-//   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N]
+//   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change]
 // Logging, the settings file and guest memory, then exit 0. --window (off Windows) opens the game window and runs its
 // event loop as a port does: keys, mouse buttons, the wheel, focus and close reach GameInfo::message as Win32
 // messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second.
@@ -7,6 +7,8 @@
 // --vulkan (off Windows, instead of --window) opens the game window and draws the frames through the Vulkan backend
 // with the ImGui overlay; --audio plays a test tone through the platform audio output, alone for N / 60 seconds or
 // while the frames are drawn (smoke_av.cpp). Exit 1 when either fails.
+// --display-change (off Windows, with --vulkan): a display's mode changed and the window's HDR state changed, as SDL
+// says them on a hot-plug, twice a second while the frames read the desktop mode the window thread keeps.
 // --crash segv|abort|overflow (off Windows): the crash handler installed, then that crash, on a thread the way the
 // kernel starts the game's (its own signal stack): a crash log should land in CrashDumps beside the exe.
 #include <algorithm>
@@ -35,6 +37,7 @@ namespace {
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
 }
 namespace smoke {  // smoke_av.cpp
+extern bool g_display_change;
 void Ui(double fps);
 int Run(bool vulkan, bool sound, int frames);
 }  // namespace smoke
@@ -153,10 +156,12 @@ bool Parse(int argc, char** argv, Options& o) {
             o.frames = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--fps") && i + 1 < argc) {
             o.fps = std::atoi(argv[++i]);
+        } else if (!std::strcmp(argv[i], "--display-change")) {
+            smoke::g_display_change = true;
         } else if (!std::strcmp(argv[i], "--crash") && i + 1 < argc) {
             o.crash = argv[++i];
         } else {
-            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--crash segv|abort|overflow]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--crash segv|abort|overflow]\n", argv[0]);
             return false;
         }
     }

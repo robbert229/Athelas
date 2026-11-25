@@ -17,8 +17,13 @@
 #include "gpu/state.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
+#ifndef _WIN32
+#include "app/sdl_window.h"
+#endif
 
 namespace smoke {
+
+bool g_display_change = false;
 
 namespace {
 
@@ -110,6 +115,23 @@ bool Vulkan(int frames) {
         }
 #endif
         g_frame = f;
+#ifndef _WIN32
+        // --display-change: the events pushed as SDL's own would come, the window thread working the screens out
+        // again while this thread reads what it keeps (each frame, as Output is asked)
+        if (g_display_change) {
+            app::Mode m = app::Desktop();
+            if (f % 30 == 15) {
+                SDL_Event e{};
+                e.type = f % 60 == 15 ? SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED : SDL_EVENT_WINDOW_HDR_STATE_CHANGED;
+                if (e.type == SDL_EVENT_DISPLAY_CURRENT_MODE_CHANGED) e.display.displayID = app::sdl::Display();
+                SDL_PushEvent(&e);
+                float white = 0, headroom = 0;
+                bool hdr = app::sdl::WindowHdr(white, headroom);
+                LOGR("smoke: frame %d, %s pushed, desktop %ux%u, HDR %d", f,
+                     e.type == SDL_EVENT_WINDOW_HDR_STATE_CHANGED ? "HDR change" : "display change", m.width, m.height, hdr);
+            }
+        }
+#endif
         float t = float(f) / 60.0f;
         uint32_t r = uint32_t(40 + 30 * std::sin(t)), g = uint32_t(40 + 30 * std::sin(t + 2)), bl = uint32_t(60 + 40 * std::sin(t + 4));
         b->Clear(s, 0, nullptr, gpu::kClearTarget, 0xFF000000u | r << 16 | g << 8 | bl, 1.0f, 0);

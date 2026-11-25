@@ -10,14 +10,16 @@ what reaches the game from it, with a paced frame thread (`--fps`). `--vulkan` o
 (`--frames N`, 0 until the window is closed) through the real Vulkan backend: a clear and three triangles through
 `Backend::Draw` (fixed-function state, shaders through glslang), shown at the console's 4:3 with the ImGui overlay.
 `--audio` plays a 440/660 Hz tone through the platform audio output, alone for N / 60 seconds or while the frames are
-drawn. It exits 1 when the renderer doesn't start or the output pulls less than half real time.
+drawn. It exits 1 when the renderer doesn't start or the output pulls less than half real time. `--display-change`
+(with `--vulkan`) pushes a display mode change and a window HDR change twice a second, as SDL sends them when a screen
+is plugged in, while the frames read the desktop mode the window thread keeps.
 
 ## Build and run (Linux)
 
 ```
 cmake -S sdk/smoke -B sdk/smoke/build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 ninja -C sdk/smoke/build xbe_smoke
-cd sdk/smoke/build && ./xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N]
+cd sdk/smoke/build && ./xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change]
 ```
 
 Useful with `--vulkan` and `--audio`: `XBE_VK_VALIDATE=1` (or `sync`) logs the Khronos validation layer's errors, or
