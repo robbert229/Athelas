@@ -5,7 +5,7 @@
 // messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second.
 // --frames N closes the window after N frames (0: when it is closed).
 // --vulkan (off Windows, instead of --window) opens the game window and draws the frames through the Vulkan backend
-// with the ImGui overlay; --audio plays a test tone through the platform audio output, alone for N / 60 seconds or
+// with the ImGui overlay, paced at --fps too (with v-sync, the screen's refresh is the most); --audio plays a test tone through the platform audio output, alone for N / 60 seconds or
 // while the frames are drawn (smoke_av.cpp). Exit 1 when either fails.
 // --display-change (off Windows, with --vulkan): a display's mode changed and the window's HDR state changed, as SDL
 // says them on a hot-plug, twice a second while the frames read the desktop mode the window thread keeps.
@@ -111,7 +111,6 @@ void Crash(const std::string& kind) {
 
 // the window thread's loop on the main thread, as a port's; frames from another thread, as the game's
 int RunWindow(const Options& o) {
-    app::Get().fps_cap = uint32_t(std::max(o.fps, 0));
     if (!app::StartWindow(true)) return 1;
     uint32_t w = 0, h = 0;
     app::WindowPixelSize(w, h);
@@ -181,6 +180,7 @@ int Smoke(int argc, char** argv) {
     logx::Init(app::LogFolder().string(), app::kGame.log);
     LOGR("smoke: start");
     app::Load();
+    app::Get().fps_cap = uint32_t(std::max(o.fps, 0));  // the frame cap of --window's and --vulkan's frames
     LOGR("smoke: settings from %s", app::SettingsFile().string().c_str());
     if (!mem::Init()) return Fail("guest memory");
     LOGR("smoke: guest memory up");
