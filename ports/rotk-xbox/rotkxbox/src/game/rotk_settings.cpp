@@ -23,17 +23,6 @@
 #include "core/log.h"
 #include "gpu/backend.h"
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX  // std::min and std::max, not Windows' macros
-#endif
-#include <windows.h>
-#include <shellapi.h>
-#endif
-
 namespace rotk {
 extern bool g_skip_all_videos;                // rotk_movies.cpp
 extern uint32_t g_fps;                         // rotk_framerate.cpp
@@ -87,23 +76,10 @@ bool ReadIni(const std::filesystem::path& file, Ini& ini) {
     return true;
 }
 
-#ifdef _WIN32
-// the value after a command line option ("--ini"), or empty (its callers are Windows only)
-std::filesystem::path Argument(const wchar_t* name) {
-    std::filesystem::path p;
-    int n = 0;
-    wchar_t** v = CommandLineToArgvW(GetCommandLineW(), &n);
-    for (int i = 1; v && i + 1 < n; i++)
-        if (std::wstring(v[i]) == name) p = v[i + 1];
-    if (v) LocalFree(v);
-    return p;
-}
-#endif
-
 // the PC game's ROTKFix.ini, for its Data folder: --ini (an older launcher), else that of the PC game Athelas knows
 std::filesystem::path PcIni() {
-#ifdef _WIN32
-    std::filesystem::path p = Argument(L"--ini");
+#ifndef XBE_HEADLESS
+    std::filesystem::path p = app::ArgValue("--ini");
     if (!p.empty()) return p;
     // started on its own from Athelas's ROTK-Xbox folder: the ROTKFix.ini Athelas would pass, that of the PC game it
     // knows (Athelas.ini's Game = rotk-pc|<folder>), else the one beside Athelas
@@ -323,9 +299,9 @@ void SettingChanged(const cfg::Desc& d) {
 void Init() {
     g_ini_file = PcIni();
     if (!g_ini_file.empty()) LOGR("rotk: the PC game's settings file %s (for its Data folder)", g_ini_file.string().c_str());
-#ifdef _WIN32
+#ifndef XBE_HEADLESS
     // --import-ini <ROTKFix.ini>: its values into settings.toml, once, for the launcher
-    std::filesystem::path import = Argument(L"--import-ini");
+    std::filesystem::path import = app::ArgValue("--import-ini");
     if (!import.empty()) {
         int code = ApplyIni(import) ? 0 : 1;
         if (!code) {
