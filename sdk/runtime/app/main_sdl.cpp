@@ -19,6 +19,7 @@
 #include <cstring>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -91,34 +92,54 @@ const std::vector<std::string>& Argv() {
 bool OnWindowThread() { return std::this_thread::get_id() == g_main_thread; }
 
 // runs fn on the window thread and waits for it (Win32's SendMessage). Before the loop runs the call waits in SDL's
-// queue; after it has ended (or when it doesn't answer in 10 s) fn runs here instead.
+// queue; after it has ended fn runs here instead. A call the window thread hasn't started within 10 s is given up (it
+// never runs: fn's references would be gone); one it has started is waited for, however long (a message box). Both
+// threads hold the call, so neither frees it under the other.
 struct Call {
     std::function<void()> fn;
     std::mutex m;
     std::condition_variable cv;
-    bool done = false;
+    bool started = false, done = false, abandoned = false;
 };
 void RunOnWindowThread(const std::function<void()>& fn) {
     if (OnWindowThread() || g_loop_done || !g_call_event) {
         fn();
         return;
     }
-    auto* c = new Call{fn};
+    auto c = std::make_shared<Call>();
+    c->fn = fn;
     SDL_Event e{};
     e.type = g_call_event;
-    e.user.data1 = c;
+    e.user.data1 = new std::shared_ptr<Call>(c);
     if (!SDL_PushEvent(&e)) {
-        delete c;
+        delete static_cast<std::shared_ptr<Call>*>(e.user.data1);
         fn();
         return;
     }
     std::unique_lock lock(c->m);
-    if (!c->cv.wait_for(lock, std::chrono::seconds(10), [&] { return c->done; })) {
+    if (!c->cv.wait_for(lock, std::chrono::seconds(10), [&] { return c->started; })) {
+        c->abandoned = true;
         LOGW("window: the window thread didn't answer, going on without it");
-        return;  // c is the window thread's to free if it ever gets to it
+        return;
     }
-    lock.unlock();
-    delete c;
+    c->cv.wait(lock, [&] { return c->done; });
+}
+
+// window thread: a call from RunOnWindowThread
+void RunCall(void* data) {
+    auto* held = static_cast<std::shared_ptr<Call>*>(data);
+    std::shared_ptr<Call> c = std::move(*held);
+    delete held;
+    {
+        std::lock_guard lock(c->m);
+        if (c->abandoned) return;
+        c->started = true;
+        c->cv.notify_all();
+    }
+    c->fn();
+    std::lock_guard lock(c->m);
+    c->done = true;
+    c->cv.notify_all();
 }
 
 void UpdatePixelSize() {
@@ -298,13 +319,7 @@ void ToImGui(const SDL_Event& in) {
 
 void Handle(const SDL_Event& e) {
     if (e.type == g_call_event) {
-        auto* c = static_cast<Call*>(e.user.data1);
-        c->fn();
-        {
-            std::lock_guard lock(c->m);
-            c->done = true;
-        }
-        c->cv.notify_all();
+        RunCall(e.user.data1);
         return;
     }
     if (!g_window) return;
