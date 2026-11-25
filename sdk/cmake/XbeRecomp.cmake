@@ -111,13 +111,14 @@ set(XBE_IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
 if(WIN32)
-    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp)
+    # (the order Windows builds have always had)
+    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
+         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
 else()
     # elsewhere the window is SDL's
-    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
+    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
     set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp PROPERTIES INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
 endif()
 # the Vulkan menu backend calls Vulkan through the functions gpu/vk_loader.cpp looks up (no vulkan-1.lib)
