@@ -22,7 +22,7 @@ struct Screen {
 };
 
 // asked before the window is up too (the settings' list, the system's log): video started then, on the main thread
-bool VideoUp() { return SDL_WasInit(SDL_INIT_VIDEO) || SDL_InitSubSystem(SDL_INIT_VIDEO); }
+bool VideoUp() { return sdl::StartVideo(); }
 
 std::vector<Screen> Screens() {
     std::vector<Screen> out;

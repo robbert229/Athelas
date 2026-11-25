@@ -17,5 +17,6 @@ void ReleaseAll();                        // window thread: the focus went elsew
 SDL_DisplayID Display();                  // the screen setting's display (ScreenMonitor), the primary one without it
 void ScreensChanged();                    // window thread: a display was added, removed or changed mode
 void LogScreens();                        // each screen's setting name, SDL name and desktop mode
+bool StartVideo();                        // main thread: SDL's video, once (the app's name and hints first)
 void InstallCrashHandler();               // crash_posix.cpp: at start, on the main thread
 }  // namespace app::sdl

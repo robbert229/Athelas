@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cfloat>
 #include <chrono>
 #include <cmath>
@@ -487,17 +488,27 @@ void CloseGameWindow() {
     }
 }
 
-bool StartWindow(bool show) {
-    g_main_thread = std::this_thread::get_id();
+namespace sdl {
+
+bool StartVideo() {
+    if (SDL_WasInit(SDL_INIT_VIDEO)) return true;
+    // the name and id the desktop shows (Wayland's app id), set before video starts
     std::string title = Title(), id = "athelas.";
     for (wchar_t c : std::wstring(kGame.name)) id += char(std::tolower(int(c & 0x7F)));
     SDL_SetAppMetadata(title.c_str(), kGame.version, id.c_str());
     // under gamescope the game keeps the screen when another window takes the focus (main.cpp's ApplyNow)
     if (Gamescope()) SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
-    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-        LOGE("window: SDL's video didn't start: %s", SDL_GetError());
-        return false;
-    }
+    if (SDL_InitSubSystem(SDL_INIT_VIDEO)) return true;
+    LOGE("window: SDL's video didn't start: %s", SDL_GetError());
+    return false;
+}
+
+}  // namespace sdl
+
+bool StartWindow(bool show) {
+    g_main_thread = std::this_thread::get_id();
+    if (!sdl::StartVideo()) return false;
+    std::string title = Title();
     LOGR("window: SDL %d.%d.%d, %s", SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION, SDL_GetCurrentVideoDriver());
     sdl::LogScreens();
     g_call_event = SDL_RegisterEvents(1);
