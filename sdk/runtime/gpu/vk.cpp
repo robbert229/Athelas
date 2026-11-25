@@ -636,6 +636,10 @@ private:
     VkSwapchainKHR swap_ = VK_NULL_HANDLE;
     VkFormat swap_fmt_ = VK_FORMAT_UNDEFINED;
     VkExtent2D extent_{};
+    // the surface leaves the size to the swapchain (Wayland): the window's pixel size it was made for, watched by
+    // Present, as no out-of-date result says the window changed
+    bool size_by_app_ = false;
+    VkExtent2D window_px_{};
     bool vsync_ = true;
     // S11 HDR
     bool colorspace_ext_ = false, hdr_ = false, hdr_wanted_ = false;
@@ -1226,8 +1230,9 @@ bool VkBackend::CreateSwapchain() {
     }
     if (r != VK_SUCCESS) return Fail("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", r);
     VkExtent2D ext = caps.currentExtent;
-    if (ext.width == 0xFFFFFFFFu) {  // the window's size is the swapchain's to choose (Wayland)
-        ext = GameWindowPixels();
+    size_by_app_ = ext.width == 0xFFFFFFFFu;
+    if (size_by_app_) {  // the window's size is the swapchain's to choose (Wayland)
+        ext = window_px_ = GameWindowPixels();
         ext.width = std::clamp(ext.width, caps.minImageExtent.width, caps.maxImageExtent.width);
         ext.height = std::clamp(ext.height, caps.minImageExtent.height, caps.maxImageExtent.height);
     }
@@ -6034,10 +6039,16 @@ void VkBackend::Present(const Surface& front) {
             fps_n = 0;
         }
     }
-    // the window resized, minimised or v-sync changed in the menu: a new swapchain
+    // the window resized (Wayland's, which only the window's size says), minimised or v-sync changed in the menu: a
+    // new swapchain
     // (S17: fast forward is not held to the screen's refresh, as on Direct3D 12: the swapchain is made again with
     // an immediate present mode while it is held)
-    if (!swap_ || vsync_ != WantVsync() || hdr_wanted_ != app::Get().hdr) {
+    bool resized = false;
+    if (size_by_app_) {
+        VkExtent2D px = GameWindowPixels();
+        resized = px.width != window_px_.width || px.height != window_px_.height;
+    }
+    if (!swap_ || resized || vsync_ != WantVsync() || hdr_wanted_ != app::Get().hdr) {
         Submit(true);
         vkDeviceWaitIdle(device_);
         if (!CreateSwapchain()) {
