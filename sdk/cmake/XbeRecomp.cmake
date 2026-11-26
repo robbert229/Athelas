@@ -36,8 +36,8 @@ FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git G
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-# its 2D renderer off Windows alone: the boot splash draws through it (app/splash_sdl.cpp; Wayland has no window
-# surface without it)
+# its 2D renderer off Windows alone: the boot splash and the online co-op window draw through it (app/splash_sdl.cpp,
+# app/netplay_window_sdl.cpp; Wayland has no window surface without it)
 if(WIN32)
     set(SDL_RENDER OFF CACHE BOOL "" FORCE)
 else()
@@ -123,9 +123,11 @@ if(WIN32)
     list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
          ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
 else()
-    # elsewhere the window is SDL's
-    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
-    set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp PROPERTIES INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
+    # elsewhere the window is SDL's (and the online co-op window SDL's renderer)
+    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+         ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp)
+    set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp
+                                PROPERTIES INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
 endif()
 # the Vulkan menu backend calls Vulkan through the functions gpu/vk_loader.cpp looks up (no vulkan-1.lib)
 set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp PROPERTIES COMPILE_DEFINITIONS IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
@@ -134,15 +136,14 @@ set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp P
 set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp PROPERTIES COMPILE_DEFINITIONS IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 file(GLOB XBE_RUNTIME_SOURCES CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/*/*.cpp)
 # off Windows: no Direct3D 12, upscalers or XAudio2, and the Win32 window and app layer is left out; the SDL3 and
-# POSIX twins below replace it, and app/posix_pending.cpp stands in for what has none yet (notes/mac-linux-plan.md)
+# POSIX twins below replace it (notes/mac-linux-plan.md)
 set(XBE_WIN32_ONLY_SOURCES gpu/d3d12.cpp gpu/upscale.cpp audio/xaudio2.cpp app/main.cpp
     app/splash.cpp app/netplay_window.cpp app/system_info.cpp app/handover.cpp)
 # the SDL3 window layer (app/main_sdl.cpp and its kin) is the other way round: everywhere but Windows
 set(XBE_SDL_APP_SOURCES app/main_sdl.cpp app/keyboard_sdl.cpp app/screens_sdl.cpp app/crash_posix.cpp
-    app/splash_sdl.cpp app/system_info_posix.cpp app/handover_posix.cpp)
+    app/splash_sdl.cpp app/system_info_posix.cpp app/handover_posix.cpp app/netplay_window_sdl.cpp)
 if(WIN32)
-    list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/app/posix_pending.cpp
-         ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp)
+    list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp)
     foreach(f ${XBE_SDL_APP_SOURCES})
         list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/${f})
     endforeach()

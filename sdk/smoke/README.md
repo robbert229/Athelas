@@ -73,11 +73,11 @@ XBE_PORT=ports/rotk-xbox/rotkxbox RUN=1 sdk/smoke/wincross.sh
 
 Under Wine `xbe_port_check.exe --no-dialogs` runs the real `wWinMain` as far as finding the game, and exits 2.
 
-## Stand ins
+## The Win32 app files off Windows
 
-Off Windows, `runtime/app/posix_pending.cpp` stands in for the Win32 app files the build leaves out
-(`XBE_WIN32_ONLY_SOURCES` in `cmake/XbeRecomp.cmake`). Each stand in says what replaces it. Delete them as the real
-code lands.
+Off Windows the build leaves out the Win32 app files (`XBE_WIN32_ONLY_SOURCES` in `cmake/XbeRecomp.cmake`) and builds
+their SDL3 and POSIX twins instead (`XBE_SDL_APP_SOURCES`): `main_sdl.cpp`, `splash_sdl.cpp`, `netplay_window_sdl.cpp`
+and the rest. No stand ins are left.
 
 ## Playing a native build from a script
 
