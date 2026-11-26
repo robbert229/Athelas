@@ -1,0 +1,37 @@
+#!/bin/sh
+# AppRun: what the AppImage starts. The exe keeps its settings, saves, logs and caches beside itself unless told
+# otherwise, and inside an AppImage that folder is read-only, so they go to one folder in the home instead:
+#   $ROTKXBOX_DATA, else $XDG_DATA_HOME/athelas/rotk-xbox (~/.local/share/athelas/rotk-xbox)
+# The game (the Xbox disc as an .iso, or its extracted files with default.xbe at the top) is, in this order:
+#   --game <folder or .iso>, $ROTKXBOX_GAME, a folder "assets" beside the AppImage, the AppImage's own folder when
+#   an .iso or default.xbe is in it. An argument the player gives (--config, --saves, ...) wins over these.
+here=$(dirname "$(readlink -f "$0")")
+data=${ROTKXBOX_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/athelas/rotk-xbox}
+mkdir -p "$data/logs" || exit 1
+
+given() {
+    for a in "$@"; do [ "$a" = "$want" ] && return 0; done
+    return 1
+}
+for pair in "--config:$data/settings.toml" "--saves:$data/saves" "--log:$data/logs/rotkx.log" \
+            "--shader-cache:$data/shadercache" "--screenshots:$data/Screenshots" "--textures:$data/textures"; do
+    want=${pair%%:*}
+    given "$@" || set -- "$@" "$want" "${pair#*:}"
+done
+
+want=--game
+if ! given "$@"; then
+    beside=$(dirname "${APPIMAGE:-$here}")
+    if [ -n "$ROTKXBOX_GAME" ]; then
+        game=$ROTKXBOX_GAME
+    elif [ -d "$beside/assets" ]; then
+        game="$beside/assets"
+    elif [ -f "$beside/default.xbe" ] || ls "$beside"/*.iso "$beside"/*.ISO >/dev/null 2>&1; then
+        game=$beside
+    else
+        game="$beside/assets"  # not there: the exe then says plainly where it looked
+    fi
+    set -- "$@" --game "$game"
+fi
+
+exec "$here/usr/bin/ROTKXbox" "$@"

@@ -108,6 +108,18 @@ The log says why the game stopped. A crash also leaves a `.dmp` file in `CrashDu
 
 The recompiled code in `generated` is made from your own game and is never committed.
 
+### Linux
+
+`build.sh` is the Linux twin of `build.bat` (clang, lld, cmake, ninja, git and Python 3; the exe goes to
+`out/build/linux-release`). `appimage.sh` is the twin of `release.bat`: it builds in an Ubuntu 22.04 container through
+podman, so the result runs on any distribution from 2022 on and on the Steam Deck, and writes
+`release/ROTKXbox-<version>-x86_64.AppImage` with its `.sha256` and the exe's debug information (`.debug`).
+
+The AppImage holds no game files. Put the game beside it, as the Xbox disc's `.iso` or as a folder named `assets`
+with the extracted files, or start it with `--game <folder or .iso>` (or set `ROTKXBOX_GAME`). Its settings, saves,
+logs, shader cache and screenshots go to `~/.local/share/athelas/rotk-xbox` (`ROTKXBOX_DATA` moves them); any of
+`--config`, `--saves`, `--log`, `--shader-cache`, `--screenshots` or `--textures` given on the command line wins.
+
 ## Credits
 
 By Shagg, with Claude (Anthropic).

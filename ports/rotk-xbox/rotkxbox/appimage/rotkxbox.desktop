@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ROTK Xbox PC port
+GenericName=The Return of the King (Xbox), native
+Comment=The Xbox Return of the King recompiled to run natively, from Athelas
+Exec=ROTKXbox
+Icon=rotkxbox
+Categories=Game;ActionGame;
+Terminal=false

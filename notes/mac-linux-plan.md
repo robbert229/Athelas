@@ -105,6 +105,12 @@ Windows has except the D3D12-only ones.
 - **Packaging:** build inside the Steam Runtime (sniper) SDK container so one binary runs on SteamOS and older
   glibc. SDL3 is already static; rely on the system's `libvulkan.so.1`. Ship a `.tar.xz` with a `.desktop` file and
   icon, plus an AppImage. Flatpak later, if people ask for it.
+  - Done for ROTK Xbox: `ports/rotk-xbox/rotkxbox/appimage.sh` builds in an Ubuntu 22.04 container (glibc 2.35,
+    clang 22 from apt.llvm.org, libstdc++ static) rather than sniper (glibc 2.31, but too old a C++ library for
+    clang 22 without more work), so the exe needs only libc and libm. Its `AppRun` puts the data in
+    `$XDG_DATA_HOME/athelas/rotk-xbox` through the existing `--config`/`--saves`/... arguments, so decision 1 needed
+    no runtime change for it. Online co-op still writes `online-session` beside the exe (read-only in an AppImage):
+    fix that when Linux co-op lands. The `.tar.xz` isn't made yet.
 - **CI:** add a Linux job that builds the runtime and launcher without game code (the game can't be built in CI:
   it needs the player's `default.xbe`). The harness tests stay local.
 - **README / dist-files:** Requirements and Steam Deck sections ("native" next to "Proton").
