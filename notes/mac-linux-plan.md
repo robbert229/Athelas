@@ -88,6 +88,15 @@ and fullscreen on Vulkan, with sound, pad and keyboard/mouse, and saves and load
 Exit: a Linux download a player can extract and run on a clean SteamOS / Ubuntu 22.04 / Fedora, with every feature
 Windows has except the D3D12-only ones.
 
+Work on `integration/m2` (stacked on `integration/m1`), in four workstreams:
+
+| Stream | Scope |
+| --- | --- |
+| M2-A app layer | `splash.cpp`, `system_info.cpp`, `discord.cpp`, `handover.cpp` and the message boxes on POSIX; `posix_pending.cpp` emptied and deleted |
+| M2-B keyboard and prompts | `prompt_style.cpp` and `rotk_prompts.cpp` key caps without GDI; keyboard and mouse checked in the game |
+| M2-C online co-op | `netplay_window.cpp` as SDL3 + ImGui, the session folder out of the exe's folder, Linux to Linux and Linux to Windows co-op |
+| M2-D release, CI, docs | the `.tar.xz`, a Linux CI job, README and dist-files, the M1 leftovers (Vulkan hitch log, Wayland screen choice), clean-distribution runs |
+
 - **App-layer extras**, file by file:
   - `app/splash.cpp` (WIC + GDI): decode with `stb_image` (already in `gpu/stb/`) and show it in the SDL window.
   - `app/prompt_style.cpp` and `rotk_prompts.cpp` (key caps' text drawn with GDI fonts): rasterise with
