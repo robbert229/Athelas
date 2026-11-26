@@ -36,7 +36,13 @@ FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git G
 set(SDL_SHARED OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC ON CACHE BOOL "" FORCE)
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+# its 2D renderer off Windows alone: the boot splash draws through it (app/splash_sdl.cpp; Wayland has no window
+# surface without it)
+if(WIN32)
+    set(SDL_RENDER OFF CACHE BOOL "" FORCE)
+else()
+    set(SDL_RENDER ON CACHE BOOL "" FORCE)
+endif()
 set(SDL_GPU OFF CACHE BOOL "" FORCE)
 set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
 # guest threads read the pads, which SDL's debug-only main thread checks reject (upstream XboxXBE-Recomp 7221172)
@@ -127,13 +133,13 @@ set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp P
 # the in-game menu reads the controllers through SDL (app/overlay.cpp), not the backend's XInput
 set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp PROPERTIES COMPILE_DEFINITIONS IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 file(GLOB XBE_RUNTIME_SOURCES CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/*/*.cpp)
-# off Windows: no Direct3D 12, upscalers or XAudio2, and the Win32 window and app layer is left out until its SDL3
-# replacement lands; app/posix_pending.cpp stands in for what they provided (notes/mac-linux-plan.md, M1)
+# off Windows: no Direct3D 12, upscalers or XAudio2, and the Win32 window and app layer is left out; the SDL3 and
+# POSIX twins below replace it, and app/posix_pending.cpp stands in for what has none yet (notes/mac-linux-plan.md)
 set(XBE_WIN32_ONLY_SOURCES gpu/d3d12.cpp gpu/upscale.cpp audio/xaudio2.cpp app/main.cpp
     app/splash.cpp app/netplay_window.cpp app/system_info.cpp app/handover.cpp)
 # the SDL3 window layer (app/main_sdl.cpp and its kin) is the other way round: everywhere but Windows
 set(XBE_SDL_APP_SOURCES app/main_sdl.cpp app/keyboard_sdl.cpp app/screens_sdl.cpp app/crash_posix.cpp
-    app/system_info_posix.cpp app/handover_posix.cpp)
+    app/splash_sdl.cpp app/system_info_posix.cpp app/handover_posix.cpp)
 if(WIN32)
     list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/app/posix_pending.cpp
          ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp)
