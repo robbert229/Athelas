@@ -6,7 +6,8 @@ recompiled code is a stand in (`cmake/XbeStandIn.cmake`): every XDK symbol the S
 every recompiled function traps.
 
 Alone it starts logging, the settings file and guest memory, then exits 0. `--window` opens the game window and logs
-what reaches the game from it, with a paced frame thread (`--fps`). `--vulkan` opens the window and draws N frames
+what reaches the game from it, with a paced frame thread (`--fps`), and the keyboard player's controller as the keys
+and the mouse make it, whenever it changes. `--vulkan` opens the window and draws N frames
 (`--frames N`, 0 until the window is closed) through the real Vulkan backend: a clear and three triangles through
 `Backend::Draw` (fixed-function state, shaders through glslang), shown at the console's 4:3 with the ImGui overlay, paced at `--fps` too (with v-sync, the screen's refresh is the
 most).
@@ -85,6 +86,13 @@ and the rest. No stand ins are left.
 plays the harness's pad scripts on it (`sdk/harness/README.md`), a frame being 1/60 s; `--fifo <pipe>` then keeps it
 plugged in and presses what is written to the pipe (`A 8`, `LS+X 20`, `wait 30`). It answers the game's rumble and
 logs it. Off Windows `kill -USR1 <pid>` takes a screenshot, as the backslash key does, into `Screenshots`.
+
+`vkbd.py` is its keyboard and mouse twin: the same scripts with the `[keyboard]` settings' key names (`W+LAlt 30`,
+`Mouse2 8`, `Numpad5`, `F10`), `move dx dy [frames]` for relative mouse movement and `wheel n`, through XTest into one
+X server (`--display`): gamescope's own Xwayland (the game's `DISPLAY` there, in `/proc/<pid>/environ`) or Xvfb. A
+uinput keyboard won't do: headless gamescope reads no input devices, and the desktop's compositor takes every new
+keyboard and types into its focused window. `gamescopectl screenshot` takes the game with the in-game menu; give it
+`GAMESCOPE_WAYLAND_DISPLAY` from the game's environment, or it reaches whichever gamescope holds the default socket.
 
 `audio_level.sh <seconds> [sink]` records a sink's monitor and prints its level. With a null sink of its own
 (`pactl load-module module-null-sink sink_name=xbe_test`, then `PIPEWIRE_NODE=xbe_test` for the game) it measures the

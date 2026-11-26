@@ -2,7 +2,9 @@
 //   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID]
 // Logging, the settings file and guest memory, then exit 0. --window (off Windows) opens the game window and runs its
 // event loop as a port does: keys, mouse buttons, the wheel, focus and close reach GameInfo::message as Win32
-// messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second.
+// messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second and
+// the keyboard player's controller as the keys and the mouse make it (keys::Merge, as input::Poll reads it) when it
+// changes.
 // --frames N closes the window after N frames (0: when it is closed).
 // --vulkan (off Windows, instead of --window) opens the game window and draws the frames through the Vulkan backend
 // with the ImGui overlay, paced at --fps too (with v-sync, the screen's refresh is the most); --audio plays a test tone through the platform audio output, alone for N / 60 seconds or
@@ -27,6 +29,7 @@
 #include <windows.h>  // off Windows the compat header: the WM_ and VK_ names
 
 #include "app/app.h"
+#include "core/input.h"
 #include "core/keys.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
@@ -137,6 +140,7 @@ int RunWindow(const Options& o) {
         using clock = std::chrono::steady_clock;
         auto start = clock::now(), second = start;
         int n = 0, last = 0;
+        std::string pad_was;
         while (!stop && (!o.frames || n < o.frames)) {
             app::SplashFirstFrame();
             app::Pace();
@@ -146,6 +150,15 @@ int RunWindow(const Options& o) {
                 LOGR("smoke: Discord status off");
                 app::Get().discord = false;
             }
+            // the keyboard player's controller, once a frame as a game polls it
+            input::Pad p{};
+            keys::Merge(int(app::Get().keyboard_player) - 1, p);
+            char text[128];
+            std::snprintf(text, sizeof text, "buttons %04X, A B X Y black white LT RT %u %u %u %u %u %u %u %u, left stick %d %d",
+                          p.buttons, p.analog[0], p.analog[1], p.analog[2], p.analog[3], p.analog[4], p.analog[5],
+                          p.analog[6], p.analog[7], p.lx, p.ly);
+            if (pad_was != text) LOGR("smoke: frame %d, keyboard player's controller: %s", n, text);
+            pad_was = text;
             if (clock::now() - second >= std::chrono::seconds(1)) {
                 uint32_t pw = 0, ph = 0;
                 app::WindowPixelSize(pw, ph);
