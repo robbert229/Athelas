@@ -29,11 +29,11 @@ the container (only system libraries). Nothing in the SDK or the game sources ne
 | 60 fps in level 1 | Yes in play: every 5 s window 60.0 while fighting. A frame-time count (a local instrument in `vk.cpp`, not committed) over 100 s of fighting: worst frame 17 to 22 ms, one frame over 20 ms. The first 10 s after the film show frames up to 75 ms (the level loading). |
 | Pad | Yes: moving, speed (A) and fierce (Y) attacks, kills (score 0 to 1350, level up), menus, rumble (the game's motor levels reach the pad), Back + Start for the in-game menu |
 | Sound | Yes: film -9.9 dBFS rms, fighting -10.3 dBFS rms, no 100 ms block silent; in gamescope -8.8 dBFS |
-| Saves | Partly. Settings changed from the F10 menu are saved (`menu: settings saved`) and the next run loads them; `achievements.txt` counts across runs; the game writes its title files to `hdd/E/UDATA/4541003e` at the first start. A game save needs Helm's Deep finished, which scripted input didn't do (the tutorial stayed at "Y Fierce" for 10 minutes of fierce attacks). |
+| Saves | Partly. Settings changed from the F10 menu are saved (`menu: settings saved`) and the next run loads them; `achievements.txt` counts across runs; the game writes its title files to `hdd/E/UDATA/4541003e` at the first start. A game save needs Helm's Deep finished, which scripted input didn't do (the tutorial stayed at "Y Fierce" for 10 minutes of fierce attacks: it waits for the shield-bearing Uruk-hai, rotkx-13). |
 | Window | Windowed, moved and resized (1280x720, 1920x1080) at 60 fps. Fullscreen and borderless on the desktop not tried: the user was working on both screens. |
 | gamescope 1280x800 | Yes: host gamescope 3.17, windowed and borderless; borderless fills 1280x800 with the 4:3 picture pillarboxed, 60 fps, worst frame 21.7 ms. The F10 menu draws and pages there. |
 | Vulkan validation | `XBE_VK_VALIDATE=1`, film, level start and fighting: no messages |
-| Keyboard and mouse | Not tested: keys go to the focused window, which was the user's |
+| Keyboard and mouse | Not tested: keys go to the focused window, which was the user's (done in M2, rotkx-13) |
 
 ## Problems found
 
