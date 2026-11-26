@@ -17,12 +17,19 @@
 #endif
 #include <windows.h>
 #pragma comment(lib, "gdi32")  // the key caps' text
+#else
+#include <cstdio>
+// the key caps' text: Dear ImGui's copy of stb_truetype, compiled here too, its functions this file's own
+#define STBTT_STATIC
+#define STB_TRUETYPE_IMPLEMENTATION
+#include <imstb_truetype.h>
 #endif
 
 #include "app/app.h"
 #include "app/prompt_pictures.h"  // the one copy of the pictures (sdk/tools/mkprompts.py)
 #include "core/input.h"
 #include "core/keys.h"
+#include "core/log.h"
 
 namespace app {
 
@@ -117,31 +124,16 @@ void PlacePicture(const gpu::pack::Image& src, float bx_f, float by_f, float bd_
     out.levels.push_back(std::move(px));
 }
 
+#ifndef _WIN32
+void OverlayFontData(const unsigned int*& data, unsigned int& size);  // overlay.cpp: Liberation Sans Regular
+#endif
+
+namespace {
+
 #ifdef _WIN32
-bool KeyCapPicture(const char* button, int size_px, int cap_px, float shadow_dy, gpu::pack::Image& out) {
-    keys::Action a = keys::kCount;
-    static const struct {
-        const char* b;
-        keys::Action a;
-    } kMap[] = {{"A", keys::kA},         {"B", keys::kB},         {"X", keys::kX},
-                {"Y", keys::kY},         {"WHITE", keys::kWhite}, {"BLACK", keys::kBlack},
-                {"LT", keys::kLeftTrigger}, {"RT", keys::kRightTrigger}};
-    for (auto& m : kMap)
-        if (!std::strcmp(m.b, button)) a = m.a;
-    if (a == keys::kCount) return false;
-    std::string key = keys::FirstKey(a);
-    if (key.empty()) return false;
-    // Kenney's picture of the key or mouse button, where the key cap goes
-    if (const PromptPicture* p = FindPromptPicture("keyboard", key.c_str())) {
-        gpu::pack::Image pic;
-        if (gpu::pack::DecodePng(p->png, p->size, pic) && !pic.levels.empty()) {
-            PlacePicture(pic, 0, 0, float(cap_px) / float(size_px), uint32_t(size_px), out);
-            return true;
-        }
-    }
-    // a key the pack has no picture of: a plain cap with its short name
-    const char* text = keys::ShortName(key.c_str());
-    const int N = size_px, D = cap_px;
+// the key's short name in white on black, Windows' Arial Bold through GDI: the largest size that fits in the cap's
+// face, centred on it; its coverage, N x N, in cov
+bool CapText(const char* text, int N, int D, std::vector<uint8_t>& cov) {
     BITMAPINFO bi{};
     bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
     bi.bmiHeader.biWidth = N;
@@ -177,10 +169,212 @@ bool KeyCapPicture(const char* button, int size_px, int cap_px, float shadow_dy,
     }
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, RGB(255, 255, 255));
-    const float e = D * 0.94f, r = D * 0.2f;
+    const float e = D * 0.94f;
     TextOutA(dc, int(e - ext.cx) / 2, int(e - ext.cy) / 2 - 1, text, int(std::strlen(text)));
     GdiFlush();
     const uint8_t* g = static_cast<const uint8_t*>(bits);  // the text's coverage, white on black
+    cov.assign(size_t(N) * N, 0);
+    for (size_t i = 0; i < cov.size(); i++) cov[i] = g[i * 4 + 1];
+    if (old_font) SelectObject(dc, old_font);  // a font still selected into a DC isn't freed
+    SelectObject(dc, old_bmp);
+    if (font) DeleteObject(font);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+    return true;
+}
+#endif
+
+#ifndef _WIN32
+// stb_compress's format, as Dear ImGui's binary_to_compressed_c writes it (imgui_draw.cpp's stb_decompress); empty
+// when it doesn't read
+std::vector<uint8_t> Decompress(const uint8_t* in, size_t in_size) {
+    auto be = [&](size_t at, int n) {
+        uint32_t v = 0;
+        for (int k = 0; k < n; k++) v = v << 8 | (at + k < in_size ? in[at + k] : 0);
+        return v;
+    };
+    if (in_size < 16 || be(0, 4) != 0x57bC0000 || be(4, 4) != 0) return {};
+    std::vector<uint8_t> out;
+    out.reserve(be(8, 4));
+    const size_t olen = be(8, 4);
+    auto match = [&](size_t back, size_t n) {
+        if (back == 0 || back > out.size() || out.size() + n > olen) return false;
+        for (size_t s = out.size() - back; n--; s++) out.push_back(out[s]);  // overlapping: byte by byte
+        return true;
+    };
+    auto lit = [&](size_t at, size_t n) {
+        if (at + n > in_size || out.size() + n > olen) return false;
+        out.insert(out.end(), in + at, in + at + n);
+        return true;
+    };
+    size_t i = 16;
+    for (bool ok = true; ok && i < in_size;) {
+        uint8_t c = in[i];
+        if (c >= 0x80) ok = match(in[i + 1] + 1, c - 0x80 + 1), i += 2;
+        else if (c >= 0x40) ok = match(be(i, 2) - 0x4000 + 1, in[i + 2] + 1), i += 3;
+        else if (c >= 0x20) ok = lit(i + 1, c - 0x20 + 1), i += 1 + (c - 0x20 + 1);
+        else if (c >= 0x18) ok = match(be(i, 3) - 0x180000 + 1, in[i + 3] + 1), i += 4;
+        else if (c >= 0x10) ok = match(be(i, 3) - 0x100000 + 1, be(i + 3, 2) + 1), i += 5;
+        else if (c >= 0x08) ok = lit(i + 2, be(i, 2) - 0x0800 + 1), i += 2 + (be(i, 2) - 0x0800 + 1);
+        else if (c == 0x07) ok = lit(i + 3, be(i + 1, 2) + 1), i += 3 + (be(i + 1, 2) + 1);
+        else if (c == 0x06) ok = match(be(i + 1, 3) + 1, in[i + 4] + 1), i += 5;
+        else if (c == 0x04) ok = match(be(i + 1, 3) + 1, be(i + 4, 2) + 1), i += 6;
+        else if (c == 0x05 && i + 1 < in_size && in[i + 1] == 0xfa) return out.size() == olen ? out : std::vector<uint8_t>{};
+        else break;
+    }
+    return {};
+}
+
+// the caps' face: Windows' Arial Bold when it is installed, else Liberation Sans Bold (Arial's metrics), else the
+// menu's own Liberation Sans Regular, its strokes thickened by bold (of the em, each side) to Arial Bold's.
+// XBE_KEYCAP_FONT names another font file, or "builtin" for the last.
+struct CapFont {
+    std::vector<uint8_t> data;
+    stbtt_fontinfo info{};
+    float bold = 0;
+    bool ok = false;
+};
+
+const CapFont& Font() {
+    // made in place, never copied: info points into data
+    static const CapFont* const font = [] {
+        CapFont* made = new CapFont;
+        CapFont& f = *made;
+        auto load = [&](const std::vector<uint8_t>& bytes, float bold) {
+            f.data = bytes;
+            f.ok = !f.data.empty() && stbtt_InitFont(&f.info, f.data.data(), stbtt_GetFontOffsetForIndex(f.data.data(), 0)) != 0;
+            f.bold = bold;
+            return f.ok;
+        };
+        auto file = [&](const char* path) {
+            std::vector<uint8_t> bytes;
+            if (FILE* fp = std::fopen(path, "rb")) {
+                uint8_t buf[65536];
+                for (size_t n; (n = std::fread(buf, 1, sizeof buf, fp)) > 0;) bytes.insert(bytes.end(), buf, buf + n);
+                std::fclose(fp);
+            }
+            return !bytes.empty() && load(bytes, 0);
+        };
+        const char* want = std::getenv("XBE_KEYCAP_FONT");
+        static const char* const kPaths[] = {
+            "/usr/share/fonts/truetype/msttcorefonts/Arial_Bold.ttf",  // Debian, Ubuntu (ttf-mscorefonts-installer)
+            "/usr/share/fonts/msttcore/arialbd.ttf",                    // Fedora (msttcore-fonts)
+            "/usr/share/fonts/TTF/arialbd.ttf",                         // Arch (ttf-ms-fonts)
+            "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Bold.ttf",  // Fedora
+            "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",  // Debian, Ubuntu
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",           // Arch, SteamOS
+            "/usr/share/fonts/TTF/LiberationSans-Bold.ttf",
+        };
+        if (want && std::strcmp(want, "builtin") != 0) {
+            if (file(want)) {
+                LOGR("prompts: key caps' text in %s", want);
+                return made;
+            }
+            LOGW("prompts: XBE_KEYCAP_FONT %s doesn't read as a font", want);
+        }
+        if (!want)
+            for (const char* p : kPaths)
+                if (file(p)) {
+                    LOGR("prompts: key caps' text in %s", p);
+                    return made;
+                }
+        const unsigned int* data = nullptr;
+        unsigned int size = 0;
+        OverlayFontData(data, size);
+        if (load(Decompress(reinterpret_cast<const uint8_t*>(data), size), 0.027f))
+            LOGR("prompts: key caps' text in the built-in Liberation Sans, made bold");
+        else
+            LOGW("prompts: no font for the key caps' text");
+        return made;
+    }();
+    return *font;
+}
+
+// CapText as GDI draws it (above), with stb_truetype: the size is the em's, the line's height its ascent and descent;
+// each glyph from its signed distance field, so a regular face can be drawn bold
+bool CapText(const char* text, int N, int D, std::vector<uint8_t>& cov) {
+    const CapFont& f = Font();
+    if (!f.ok) return false;
+    int asc = 0, desc = 0, gap = 0;
+    stbtt_GetFontVMetrics(&f.info, &asc, &desc, &gap);
+    const size_t len = std::strlen(text);
+    auto width = [&](float scale, float bold_px) {
+        float w = 0;
+        for (size_t i = 0; i < len; i++) {
+            int adv = 0, lsb = 0;
+            stbtt_GetCodepointHMetrics(&f.info, uint8_t(text[i]), &adv, &lsb);
+            w += std::round(adv * scale + 2 * bold_px);
+        }
+        return w;
+    };
+    int size = int(text[1] ? (text[2] ? D * 0.36 : D * 0.5) : D * 0.62);
+    float scale = 0, bold_px = 0, cx = 0;
+    for (; size > 10; size -= 2) {
+        scale = stbtt_ScaleForMappingEmToPixels(&f.info, float(size));
+        bold_px = f.bold * float(size);
+        cx = width(scale, bold_px);
+        if (cx <= D * 0.78) break;
+    }
+    const float e = D * 0.94f, cy = float(asc - desc) * scale;
+    float pen = float(int(e - cx) / 2);
+    const float base = float(int(e - cy) / 2 - 1) + std::round(float(asc) * scale);
+    cov.assign(size_t(N) * N, 0);
+    // the distance field: 128 on the outline, 32 a pixel, inwards up
+    const float kPerPx = 32.0f;
+    const int pad = int(std::ceil(bold_px)) + 2;
+    for (size_t i = 0; i < len; i++) {
+        int cp = uint8_t(text[i]), adv = 0, lsb = 0, w = 0, h = 0, xo = 0, yo = 0;
+        stbtt_GetCodepointHMetrics(&f.info, cp, &adv, &lsb);
+        unsigned char* sdf = stbtt_GetCodepointSDF(&f.info, scale, cp, pad, 128, kPerPx, &w, &h, &xo, &yo);
+        if (sdf) {
+            int ox = int(pen + bold_px) + xo, oy = int(base) + yo;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    int px = ox + x, py = oy + y;
+                    if (px < 0 || py < 0 || px >= N || py >= N) continue;
+                    float c = std::clamp((sdf[y * w + x] - 128.0f) / kPerPx + bold_px + 0.5f, 0.0f, 1.0f);
+                    uint8_t& o = cov[size_t(py) * N + px];
+                    o = std::max(o, uint8_t(c * 255.0f + 0.5f));
+                }
+            stbtt_FreeSDF(sdf, nullptr);
+        }
+        pen += std::round(adv * scale + 2 * bold_px);
+    }
+    return true;
+}
+#endif
+
+}  // namespace
+
+bool KeyCapPicture(const char* button, int size_px, int cap_px, float shadow_dy, gpu::pack::Image& out) {
+    keys::Action a = keys::kCount;
+    static const struct {
+        const char* b;
+        keys::Action a;
+    } kMap[] = {{"A", keys::kA},         {"B", keys::kB},         {"X", keys::kX},
+                {"Y", keys::kY},         {"WHITE", keys::kWhite}, {"BLACK", keys::kBlack},
+                {"LT", keys::kLeftTrigger}, {"RT", keys::kRightTrigger}};
+    for (auto& m : kMap)
+        if (!std::strcmp(m.b, button)) a = m.a;
+    if (a == keys::kCount) return false;
+    std::string key = keys::FirstKey(a);
+    if (key.empty()) return false;
+    // Kenney's picture of the key or mouse button, where the key cap goes
+    if (const PromptPicture* p = FindPromptPicture("keyboard", key.c_str())) {
+        gpu::pack::Image pic;
+        if (gpu::pack::DecodePng(p->png, p->size, pic) && !pic.levels.empty()) {
+            PlacePicture(pic, 0, 0, float(cap_px) / float(size_px), uint32_t(size_px), out);
+            return true;
+        }
+    }
+    // a key the pack has no picture of: a plain cap with its short name
+    const char* text = keys::ShortName(key.c_str());
+    const int N = size_px, D = cap_px;
+    std::vector<uint8_t> g;  // the text's coverage
+    if (!CapText(text, N, D, g)) return false;
+    const float e = D * 0.94f, r = D * 0.2f;
     out = gpu::pack::Image{};
     out.width = out.height = N;
     out.format = gpu::pack::Format::RGBA8;
@@ -197,8 +391,8 @@ bool KeyCapPicture(const char* button, int size_px, int cap_px, float shadow_dy,
             float shadow = inside(fx, fy, D * 0.05f, D * shadow_dy, e + D * 0.05f, e + D * shadow_dy, r);
             float body = inside(fx, fy, 0, 0, e, e, r);
             float face = inside(fx, fy, D * 0.04f, D * 0.04f, e - D * 0.04f, e - D * 0.04f, r * 0.8f);
-            float t = g[(y * N + x) * 4 + 1] / 255.0f;  // the text, on the face
-            float shade = 1.0f - 0.35f * fy / e;        // lighter towards the top
+            float t = g[y * N + x] / 255.0f;     // the text, on the face
+            float shade = 1.0f - 0.35f * fy / e;  // lighter towards the top
             float c[3], al = std::max(body, shadow * 0.8f);
             for (int k = 0; k < 3; k++) {
                 float edge = 150.0f, inner = (k == 2 ? 46.0f : 38.0f) * shade + 10;
@@ -211,15 +405,8 @@ bool KeyCapPicture(const char* button, int size_px, int cap_px, float shadow_dy,
             o[3] = uint8_t(std::clamp(al * 255.0f, 0.0f, 255.0f));
         }
     out.levels.push_back(std::move(px));
-    if (old_font) SelectObject(dc, old_font);  // a font still selected into a DC isn't freed
-    SelectObject(dc, old_bmp);
-    if (font) DeleteObject(font);
-    DeleteObject(bmp);
-    DeleteDC(dc);
     return true;
 }
-#else
-bool KeyCapPicture(const char*, int, int, float, gpu::pack::Image&) { return false; }
-#endif
+
 
 }  // namespace app
