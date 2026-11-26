@@ -38,7 +38,7 @@ bool g_unlock_all = false, g_dev_buttons = false, g_codes_anytime = false;
 uint32_t g_damage_percent = 100, g_enemy_damage_percent = 100;
 
 namespace {
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
 const bool kEnvRead = [] {
     // ROTK_DUMP_PROFILE=<file>: the progress block (0x1C4FE0, three 0x988-byte slots) written every 5 s (testing)
     if (const char* f = std::getenv("ROTK_DUMP_PROFILE")) {

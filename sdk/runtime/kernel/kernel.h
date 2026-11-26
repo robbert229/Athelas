@@ -198,6 +198,8 @@ ThreadRef CreateThread(uint32_t stack_size, uint32_t tls_size, uint32_t system_r
 void StartThread(ThreadRef t);
 // the processors the guest's threads may run on, a mask of them (0: any), for threads started after the call
 void SetGuestAffinity(uint64_t mask);
+// set by the host: called first on each thread Spawn starts (off Windows the crash handler's signal stack)
+inline void (*g_thread_started)() = nullptr;
 [[noreturn]] void ExitThread(uint32_t code);
 void Resume(Thread& t);
 uint32_t Suspend(Thread& t);  // previous count; another thread stops at its next kernel wait, delay or yield

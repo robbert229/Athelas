@@ -493,6 +493,7 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
     if (!g_backend) {
         g_backend = gpu::CreateBackend();
         bool ok = g_backend->Init(w, h);
+#ifdef _WIN32  // (elsewhere Vulkan is the only renderer, gpu/backend.cpp)
         if (!ok && app::Get().renderer == 1) {
             const char* why = g_backend->InitError();
             LOGR("vulkan: not used, Direct3D 12 instead: %s", why ? why : "it could not start");
@@ -508,20 +509,27 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
             ok = g_backend->Init(w, h);
             if (ok) app::g_vulkan_fallback = true;   // the in-game corner note says so (review)
         }
+#endif
         if (!ok) {
 #ifdef _WIN32
             HMODULE nt = GetModuleHandleA("ntdll.dll");
             bool wine = nt && GetProcAddress(nt, "wine_get_version");
 #else
-            bool wine = false;  // (the Linux test build)
+            bool wine = false;  // (native Linux and Mac, and the test build)
 #endif
             // under Wine the driver isn't the problem: the Direct3D 12 translation layer is (review)
             app::Fail(app::kExitNoD3D12,
                       wine ? L"Neither Direct3D 12 nor Vulkan could start under Wine. On Linux and the Steam Deck, use "
                              L"Proton, or Wine with vkd3d-proton and a Vulkan graphics driver; on a Mac (CrossOver), turn "
                              L"on D3DMetal for the bottle. The log has the details."
+#ifdef _WIN32
                            : L"Neither Direct3D 12 nor Vulkan could start. Updating the graphics driver may help; the "
                              L"game needs a graphics card with Direct3D 12 or Vulkan 1.2. The log has the details.");
+#else
+                           : L"Vulkan could not start. The game needs a graphics card and driver with Vulkan 1.2 (on "
+                             L"Linux, Mesa or the vendor's driver with its Vulkan package installed). The log has the "
+                             L"details.");
+#endif
         }
         if (RenderThread()) g_backend = gpu::CreateThreadedBackend(std::move(g_backend));
     }

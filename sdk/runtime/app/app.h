@@ -212,7 +212,23 @@ struct GameFiles {
 };
 bool FindGame(GameFiles& game);
 int Instance();  // Args().instance
-void* Window();  // HWND
+void* Window();  // HWND; off Windows the game's SDL_Window (app/main_sdl.cpp), made with SDL_WINDOW_VULKAN
+#ifndef _WIN32
+// SDL builds: what the renderer asks of the window in place of Win32's calls
+void ImGuiPlatformNewFrame();                     // ImGui_ImplSDL3_NewFrame, in the renderer's ImGui frame, UiLock held
+bool WindowAlive();                               // the game window is still there (IsWindow); any thread
+void WindowPixelSize(uint32_t& w, uint32_t& h);   // its drawable size in pixels (GetClientRect); any thread
+// the window thread (the main thread, as SDL wants): the game window (shown, or hidden until OpenGameWindow), the
+// ImGui context with imgui_impl_sdl3 and the menu's font; false without a window. Then the events until the window
+// closes (CloseGameWindow, its close button, Ctrl+C), handed on as Win32 messages; returns g_quit_code
+bool StartWindow(bool show);
+int RunWindowLoop();
+#endif
+void CloseGameWindow();  // as the window's close button: the run ends with g_quit_code; any thread
+// the value after a command line option ("--ini"), empty when it isn't given
+std::filesystem::path ArgValue(const char* name);
+// a warning with Yes and No, No the default: true for Yes; never asked (false) with --no-dialogs
+bool AskYesNo(const std::wstring& message);
 // boot splash: GameInfo::splash .bmp or .png beside the exe, up before the game window
 // online co-op's window while the PCs connect (app/netplay_window.cpp; xdk/netplay.h's g_status and g_cancelled)
 void NetplayStatus(const std::string& text);

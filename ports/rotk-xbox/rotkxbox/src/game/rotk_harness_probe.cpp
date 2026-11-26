@@ -1,8 +1,8 @@
-// Testing only, in the Linux test build (never in the Windows exe): ROTK_WATCH=<hex address> logs a character's
-// position (+0x30) after each pass of the character list (0x2EAF0, once a time step), with its move that step, so
-// walks at different time steps (ROTK_DT) can be compared (notes 09). In Path of the Wizard the player is at
+// Testing only, in the headless test build (XBE_HEADLESS, never in a player's exe): ROTK_WATCH=<hex address> logs a
+// character's position (+0x30) after each pass of the character list (0x2EAF0, once a time step), with its move that
+// step, so walks at different time steps (ROTK_DT) can be compared (notes 09). In Path of the Wizard the player is at
 // 13D08A0 (type 30, moved by 0x5E310 -> 0x255D0 -> state 0x4E6C0 -> 0x59210 -> 0x5F340 -> 0x5EBD0).
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>

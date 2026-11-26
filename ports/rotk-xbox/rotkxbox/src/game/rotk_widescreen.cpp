@@ -44,7 +44,7 @@ bool g_alpha_edges = false;     // [graphics] alpha_edges, ROTKFix.ini [Graphics
 bool g_hud_edges = false;       // [graphics] hud_edges, ROTKFix.ini [Graphics] HUDEdges
 bool g_safe_area = false;       // [graphics] safe_area: the console's black TV border around the picture
 // F1, as in The Two Towers: the HUD hidden in a level (Place2D); ROTK_HUD_HIDDEN in test builds hides it from the start
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
 std::atomic<bool> g_hud_hidden{std::getenv("ROTK_HUD_HIDDEN") != nullptr};
 #else
 std::atomic<bool> g_hud_hidden{false};
@@ -215,7 +215,7 @@ bool Place2D(const gpu::State& s, float x0, float x1, float y0, float y1, float&
         MakeGroups();
     }
     float wide = ultra ? (16.0f / 9.0f) / frame : 1.0f;  // 16:9 in the middle of an ultrawide picture
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
     if (std::getenv("HUD_BOXES")) {  // test build: each 2D draw's box
         gpu::TextureDesc t;
         bool tex = s.textures[0] && gpu::Describe(s.textures[0], t);

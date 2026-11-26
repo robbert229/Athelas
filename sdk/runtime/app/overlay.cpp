@@ -107,6 +107,10 @@ constexpr const char* kLive[] = {
 
 bool IsLive(const cfg::Desc& d) {
     std::string k = std::string(d.section) + "." + d.key;
+#ifndef _WIN32
+    // the upscalers are Direct3D 12's, which only Windows has (gpu/backend.cpp): not in the menu
+    if (k == "graphics.upscaler" || k == "graphics.upscaler_quality") return false;
+#endif
     for (const char* l : kLive)
         if (k == l) return true;
     // online co-op: the game's own (difficulty, cheats) change the game, which must stay the same on both PCs: they
@@ -588,7 +592,11 @@ void DrawOverlay(double) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     look::Backdrop(dl, L);
     char game[256] = "";
+#ifdef _WIN32
     if (kGame.title) WideCharToMultiByte(CP_UTF8, 0, kGame.title, -1, game, int(sizeof game), nullptr, nullptr);
+#else
+    if (kGame.title) std::snprintf(game, sizeof game, "%ls", kGame.title);  // (UTF-8 under a UTF-8 locale)
+#endif
     const float rule = look::Header(dl, L, game, "The game waits");
 
     static const char* const kPages[4] = {"Picture", "Controls", "Game", "Achievements"};
@@ -836,7 +844,11 @@ void DrawOverlay(double) {
             }
             g_quit_code = code;
             LOGR("menu: quit%s", code == kExitToLauncher ? " to Athelas" : two ? " to the desktop" : "");
+#ifdef _WIN32
             PostMessageW(static_cast<HWND>(Window()), WM_CLOSE, 0, 0);
+#else
+            CloseGameWindow();
+#endif
         };
         ImGui::SetCursorScreenPos(ImVec2(pa.x + 40 * u, pb.y - bh - 34 * u));
         if (two) {

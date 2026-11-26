@@ -1,5 +1,6 @@
 # build output
 build/
+build-win/
 launcher/build/
 launcher/build64/
 dist/

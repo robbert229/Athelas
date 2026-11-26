@@ -153,7 +153,7 @@ X86_FUNC(sub_00111B90) {
     __imp__sub_00111B90(ctx, base);
     app::MovieSubtitles(name);  // subtitles\<name>.srt, when the player has one
     for (char& c : name) c = char(std::toupper(static_cast<unsigned char>(c)));
-#ifndef _WIN32
+#ifdef XBE_HEADLESS
     static const char* test = std::getenv("ROTK_SKIP_MOVIE");
     bool skip = rotk::g_skip_logos && name == "LOGOS";
     if (test && name == test) skip = true;

@@ -12,6 +12,9 @@ the SDK runtime as they are, with these stand ins.
 
 Needs clang and the game's generated code. The game repo supplies stand ins for its own Windows only sources.
 
+`build.sh` defines `XBE_HEADLESS`. A game's test hooks go under `#ifdef XBE_HEADLESS`, not `#ifndef _WIN32`, so a
+native Linux or Mac build leaves them out.
+
 ## Build
 
 ```

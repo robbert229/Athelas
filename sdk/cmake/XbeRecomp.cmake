@@ -111,16 +111,39 @@ set(XBE_IMGUI_SOURCES
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp)
+if(WIN32)
+    # (the order Windows builds have always had)
+    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_dx12.cpp
+         ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp)
+else()
+    # elsewhere the window is SDL's
+    list(APPEND XBE_IMGUI_SOURCES ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
+    set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp PROPERTIES INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
+endif()
 # the Vulkan menu backend calls Vulkan through the functions gpu/vk_loader.cpp looks up (no vulkan-1.lib)
 set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp PROPERTIES COMPILE_DEFINITIONS IMGUI_IMPL_VULKAN_NO_PROTOTYPES)
 
 # the in-game menu reads the controllers through SDL (app/overlay.cpp), not the backend's XInput
 set_source_files_properties(${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp PROPERTIES COMPILE_DEFINITIONS IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 file(GLOB XBE_RUNTIME_SOURCES CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/*/*.cpp)
+# off Windows: no Direct3D 12, upscalers or XAudio2, and the Win32 window and app layer is left out until its SDL3
+# replacement lands; app/posix_pending.cpp stands in for what they provided (notes/mac-linux-plan.md, M1)
+set(XBE_WIN32_ONLY_SOURCES gpu/d3d12.cpp gpu/upscale.cpp audio/xaudio2.cpp app/main.cpp
+    app/splash.cpp app/netplay_window.cpp app/discord.cpp app/system_info.cpp app/handover.cpp)
+# the SDL3 window layer (app/main_sdl.cpp and its kin) is the other way round: everywhere but Windows
+set(XBE_SDL_APP_SOURCES app/main_sdl.cpp app/keyboard_sdl.cpp app/screens_sdl.cpp app/crash_posix.cpp)
+if(WIN32)
+    list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/app/posix_pending.cpp
+         ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp)
+    foreach(f ${XBE_SDL_APP_SOURCES})
+        list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/${f})
+    endforeach()
+else()
+    foreach(f ${XBE_WIN32_ONLY_SOURCES})
+        list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/${f})
+    endforeach()
+endif()
 # SDL's headers go to the input code alone (it is linked LINK_ONLY), so the generated sources' compile line stays the same
 set_source_files_properties(${XBE_SDK_DIR}/runtime/core/input.cpp PROPERTIES INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
 # glslang's headers likewise go to spirv.cpp alone (the kit records only the include folders of the recompiled code)
@@ -128,6 +151,58 @@ set_source_files_properties(${XBE_SDK_DIR}/runtime/gpu/spirv.cpp PROPERTIES INCL
 # the Vulkan Memory Allocator's header (third_party/vma) likewise to the Vulkan renderer's files alone
 set_source_files_properties(${XBE_SDK_DIR}/runtime/gpu/vk.cpp ${XBE_SDK_DIR}/runtime/gpu/vk_mem.cpp
                             PROPERTIES INCLUDE_DIRECTORIES "${XBE_SDK_DIR}/third_party/vma")
+# off Windows the window's Vulkan surface and the sound output are SDL's too
+if(NOT WIN32)
+    set_property(SOURCE ${XBE_SDK_DIR}/runtime/gpu/vk.cpp ${XBE_SDK_DIR}/runtime/gpu/vk_loader.cpp
+                 ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp APPEND PROPERTY INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
+    foreach(f ${XBE_SDL_APP_SOURCES})
+        set_property(SOURCE ${XBE_SDK_DIR}/runtime/${f} APPEND PROPERTY INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
+    endforeach()
+endif()
+
+if(NOT WIN32)
+    find_package(Threads REQUIRED)
+endif()
+
+# What a target holding the SDK runtime needs besides its sources (XBE_RUNTIME_SOURCES, XBE_IMGUI_SOURCES, listed by
+# the caller so their order stays): include folders, definitions and libraries. Every image's executable, and the
+# game-free smoke test (sdk/smoke).
+function(xbe_host_runtime target)
+    target_include_directories(${target} PRIVATE ${XBE_SDK_DIR}/runtime)
+    target_include_directories(${target} SYSTEM PRIVATE ${imgui_SOURCE_DIR} ${XBE_SDK_DIR}/third_party/vulkan/include)
+    if(NOT WIN32)
+        # the Win32, Winsock and DXGI names portable sources still use, as the headless harness has them
+        target_include_directories(${target} PRIVATE ${XBE_SDK_DIR}/harness/compat)
+    endif()
+    target_compile_options(${target} PRIVATE -fno-strict-aliasing)
+    target_compile_definitions(${target} PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(${target} PRIVATE XBE_HAS_UPNP=1 MINIUPNP_STATICLIB)
+    target_include_directories(${target} PRIVATE ${miniupnpc_SOURCE_DIR}/miniupnpc/include)
+    set(libs tomlplusplus::tomlplusplus $<LINK_ONLY:SDL3::SDL3-static>
+        $<LINK_ONLY:glslang::glslang> $<LINK_ONLY:glslang::SPIRV> $<LINK_ONLY:glslang::glslang-default-resource-limits>
+        $<LINK_ONLY:SPIRV-Tools-opt> $<LINK_ONLY:SPIRV-Tools-static> $<LINK_ONLY:libminiupnpc-static>)
+    if(WIN32)
+        # (mingw-w64, the llvm-mingw toolchain Athelas ships: XAudio 2.9's import library is xaudio2_9;
+        # #pragma comment(lib) isn't read, so gdi32 and advapi32 are named)
+        if(MINGW)
+            # mingw-w64 hides the Windows 10 calls (GetDpiForWindow, SetProcessDpiAwarenessContext) below this
+            target_compile_definitions(${target} PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+            target_link_options(${target} PRIVATE -municode)   # it starts at wWinMain
+            set(xaudio xaudio2_9)
+            set(extra gdi32 advapi32)
+        else()
+            set(xaudio xaudio2)
+            set(extra)
+        endif()
+        target_link_libraries(${target} PRIVATE ${libs} iphlpapi d3d12 dxgi dxguid d3dcompiler ${xaudio} ole32
+            windowscodecs dbghelp winmm dwmapi ws2_32 ${extra})
+    else()
+        # Vulkan is opened at run time (gpu/vk_loader.cpp), so no libvulkan here
+        target_link_libraries(${target} PRIVATE ${libs} ${CMAKE_DL_LIBS} Threads::Threads)
+    endif()
+    # lld keeps the recompiled weak functions overridable by the host ones
+    target_link_options(${target} PRIVATE -fuse-ld=lld -g)
+endfunction()
 
 # One executable per recompiled image: its code from config/<config> (partitions as that config sets them),
 # the SDK runtime, XBE_HOST_SOURCES shared by every image of the game, and src/<game_dir> hooks only this image has.
@@ -159,7 +234,7 @@ function(add_xbe_image target xbe config partitions game_dir)
     file(SHA1 ${xbe_file} xbe_sha1)
     set(XBE_HASH ${CMAKE_CURRENT_BINARY_DIR}/${target}_xbe.cpp)
     file(CONFIGURE OUTPUT ${XBE_HASH} CONTENT "extern const char kImageSha1[] = \"${xbe_sha1}\";\n")
-    # UTF-8 paths, DPI awareness: runtime/app/app.manifest, as resource 1 of type 24 (RT_MANIFEST)
+    # UTF-8 paths, DPI awareness: runtime/app/app.manifest, as resource 1 of type 24 (RT_MANIFEST); Windows only
     set(XBE_RC ${CMAKE_CURRENT_BINARY_DIR}/${target}_manifest.rc)
     set(rc "1 24 \"${XBE_SDK_DIR}/runtime/app/app.manifest\"\n")
     # XBE_VERSION ("1.2.3") and XBE_PRODUCT, when the game sets them: the version Windows shows in the exe's
@@ -173,16 +248,16 @@ function(add_xbe_image target xbe config partitions game_dir)
             "VALUE \"InternalName\", \"${target}\"\nVALUE \"OriginalFilename\", \"${target}.exe\"\nEND\nEND\n"
             "BLOCK \"VarFileInfo\"\nBEGIN\nVALUE \"Translation\", 0x409, 1200\nEND\nEND\n")
     endif()
-    file(CONFIGURE OUTPUT ${XBE_RC} CONTENT "${rc}")
-    set_property(SOURCE ${XBE_RC} APPEND PROPERTY OBJECT_DEPENDS ${XBE_SDK_DIR}/runtime/app/app.manifest)
-    add_executable(${target} WIN32 ${XBE_RUNTIME_SOURCES} ${XBE_HOST_SOURCES} ${GAME_SOURCES} ${GEN_SOURCES} ${XBE_IMGUI_SOURCES} ${XBE_HASH} ${XBE_RC})
+    if(WIN32)
+        file(CONFIGURE OUTPUT ${XBE_RC} CONTENT "${rc}")
+        set_property(SOURCE ${XBE_RC} APPEND PROPERTY OBJECT_DEPENDS ${XBE_SDK_DIR}/runtime/app/app.manifest)
+        add_executable(${target} WIN32 ${XBE_RUNTIME_SOURCES} ${XBE_HOST_SOURCES} ${GAME_SOURCES} ${GEN_SOURCES} ${XBE_IMGUI_SOURCES} ${XBE_HASH} ${XBE_RC})
+    else()
+        add_executable(${target} ${XBE_RUNTIME_SOURCES} ${XBE_HOST_SOURCES} ${GAME_SOURCES} ${GEN_SOURCES} ${XBE_IMGUI_SOURCES} ${XBE_HASH})
+    endif()
     add_dependencies(${target} recompile_${target})
     target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src ${XBE_SDK_DIR}/runtime ${GEN})
-    target_include_directories(${target} SYSTEM PRIVATE ${imgui_SOURCE_DIR} ${XBE_SDK_DIR}/third_party/vulkan/include)
-    target_compile_options(${target} PRIVATE -fno-strict-aliasing)
-    target_compile_definitions(${target} PRIVATE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
-    target_compile_definitions(${target} PRIVATE XBE_HAS_UPNP=1 MINIUPNP_STATICLIB)
-    target_include_directories(${target} PRIVATE ${miniupnpc_SOURCE_DIR}/miniupnpc/include)
+    xbe_host_runtime(${target})
     if(XBE_LOCKSTEP)
         target_compile_definitions(${target} PRIVATE XBE_LOCKSTEP=1)
         message(STATUS "${target}: lockstep safepoints (XBE_LOCKSTEP)")
@@ -190,23 +265,6 @@ function(add_xbe_image target xbe config partitions game_dir)
     if(XBE_VERSION)
         target_compile_definitions(${target} PRIVATE GAME_VERSION="${XBE_VERSION}")
     endif()
-    # (mingw-w64, the llvm-mingw toolchain Athelas ships: XAudio 2.9's import library is xaudio2_9; #pragma comment(lib)
-# isn't read, so gdi32 and advapi32 are named)
-if(MINGW)
-    # mingw-w64 hides the Windows 10 calls (GetDpiForWindow, SetProcessDpiAwarenessContext) below this
-    target_compile_definitions(${target} PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
-    target_link_options(${target} PRIVATE -municode)   # it starts at wWinMain
-    set(xaudio xaudio2_9)
-    set(extra gdi32 advapi32)
-else()
-    set(xaudio xaudio2)
-    set(extra)
-endif()
-target_link_libraries(${target} PRIVATE tomlplusplus::tomlplusplus $<LINK_ONLY:SDL3::SDL3-static>
-        $<LINK_ONLY:glslang::glslang> $<LINK_ONLY:glslang::SPIRV> $<LINK_ONLY:glslang::glslang-default-resource-limits>
-        $<LINK_ONLY:SPIRV-Tools-opt> $<LINK_ONLY:SPIRV-Tools-static> $<LINK_ONLY:libminiupnpc-static> iphlpapi d3d12 dxgi dxguid d3dcompiler ${xaudio} ole32 windowscodecs dbghelp winmm dwmapi ws2_32 ${extra})
-    # lld keeps the recompiled weak functions overridable by the host ones
-    target_link_options(${target} PRIVATE -fuse-ld=lld -g)
     # profile-guided optimisation (clang): XBE_PGO=GEN builds a measuring program (it writes <target>-<pid>.profraw,
     # LLVM_PROFILE_FILE to choose); with pgo/<target>.profdata beside the port (llvm-profdata merge of those) and
     # XBE_PGO not OFF/GEN, the build uses it. The kit carries the profile, so a player's build uses it too.

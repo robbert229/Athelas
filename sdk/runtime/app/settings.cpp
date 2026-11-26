@@ -1,4 +1,5 @@
 // the settings file: beside the exe, or where --config says (core/settings_file.h for its form)
+#ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -6,6 +7,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -88,6 +90,8 @@ void LogSettings() {
         if (!line.empty()) LOGR("  %s", line.c_str());
 }
 
+// the screens: Windows' monitors here; off Windows the window layer's (app/posix_pending.cpp until SDL3's)
+#ifdef _WIN32
 namespace {
 
 // "\\.\DISPLAY2" as the setting names it: DISPLAY2
@@ -152,6 +156,7 @@ Mode Desktop() {
         return {dm.dmPelsWidth, dm.dmPelsHeight};
     return {uint32_t(GetSystemMetrics(SM_CXSCREEN)), uint32_t(GetSystemMetrics(SM_CYSCREEN))};
 }
+#endif
 
 Mode Output() {
     const Settings& s = Get();
