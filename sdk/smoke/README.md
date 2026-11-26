@@ -88,7 +88,10 @@ and the rest. No stand ins are left.
 `vpad.py` plugs in a virtual Xbox 360 controller through uinput (`python3-evdev`, write access to `/dev/uinput`) and
 plays the harness's pad scripts on it (`sdk/harness/README.md`), a frame being 1/60 s; `--fifo <pipe>` then keeps it
 plugged in and presses what is written to the pipe (`A 8`, `LS+X 20`, `wait 30`). It answers the game's rumble and
-logs it. Off Windows `kill -USR1 <pid>` takes a screenshot, as the backslash key does, into `Screenshots`.
+logs it. Every game instance on the machine sees every pad: `--product <id>` gives a pad its own Microsoft product id,
+and `SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=0x045e/<id>` in a game's environment keeps it to that one (two
+instances in online co-op, one pad each). Off Windows `kill -USR1 <pid>` takes a screenshot, as the backslash key
+does, into `Screenshots`.
 
 `vkbd.py` is its keyboard and mouse twin: the same scripts with the `[keyboard]` settings' key names (`W+LAlt 30`,
 `Mouse2 8`, `Numpad5`, `F10`), `move dx dy [frames]` for relative mouse movement and `wheel n`, through XTest into one

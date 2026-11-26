@@ -111,6 +111,14 @@ Work on `integration/m2` (stacked on `integration/m1`), in four workstreams:
     stub it on POSIX for now. Two Towers and Fellowship do need it (a pipe or an `eventfd` handed to the child).
 - **Online co-op** (`xdk/netplay.cpp`, `xdk/xnet.cpp`): Winsock to BSD sockets (partly done; the harness already runs
   two instances over system link). Then test Linux-to-Windows co-op (see the determinism risk below).
+  - M2-C: the co-op window is `app/netplay_window_sdl.cpp` (SDL3's renderer and ImGui, on its own thread, which starts
+    and stops SDL's video); player 2's `online-session` goes beside the saves folder off Windows; the sockets are
+    close-on-exec and send with `MSG_NOSIGNAL`. Two Linux instances stayed in step for up to 15000 frames (film,
+    Helm's Deep, the menus). A Linux player 1 and the mingw Windows build under Wine stayed in step through the film
+    and five minutes of fighting in Helm's Deep (lockstep's musl maths makes libm no risk), but only with the test
+    variable `XBE_NETPLAY_ANY_BUILD`: player 1 refuses any other exe (`ExeHash`), so Linux and Windows players can't
+    join each other until a build identity both exes share replaces it. ROTK has no system link (no XNet imports),
+    so `xnet.cpp`'s POSIX changes are built and checked only.
 - **Packaging:** build inside the Steam Runtime (sniper) SDK container so one binary runs on SteamOS and older
   glibc. SDL3 is already static; rely on the system's `libvulkan.so.1`. Ship a `.tar.xz` with a `.desktop` file and
   icon, plus an AppImage. Flatpak later, if people ask for it.
@@ -118,8 +126,7 @@ Work on `integration/m2` (stacked on `integration/m1`), in four workstreams:
     clang 22 from apt.llvm.org, libstdc++ static) rather than sniper (glibc 2.31, but too old a C++ library for
     clang 22 without more work), so the exe needs only libc and libm. Its `AppRun` puts the data in
     `$XDG_DATA_HOME/athelas/rotk-xbox` through the existing `--config`/`--saves`/... arguments, so decision 1 needed
-    no runtime change for it. Online co-op still writes `online-session` beside the exe (read-only in an AppImage):
-    fix that when Linux co-op lands.
+    no runtime change for it. Online co-op's `online-session` goes beside the saves folder there (M2-C).
   - M2: `appimage.sh` became `release.sh`, which also makes `ROTKXbox-<version>-linux-x86_64.tar.xz`. Both start
     through `linux/rotkxbox.sh` (the AppImage's AppRun), so they keep their data in the same place; a `portable.txt`
     beside the AppImage or in the tarball's folder keeps it there (decision 1's override). Run to the main menu in
