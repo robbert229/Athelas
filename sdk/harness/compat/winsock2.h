@@ -10,6 +10,8 @@
 constexpr long FIONREAD_POSIX = FIONREAD;
 #include <sys/socket.h>
 #include <unistd.h>
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <thread>
 typedef int SOCKET; typedef int BOOL; typedef uint32_t DWORD; typedef unsigned long u_long; typedef uint16_t WORD;
@@ -57,7 +59,11 @@ inline int ws_select(int, ws_fd_set* r, ws_fd_set* w, ws_fd_set* e, timeval* tv)
     ws_fd_set* sets[3] = {r, w, e}; short ev[3] = {POLLIN, POLLOUT, POLLPRI};
     for (int k = 0; k < 3; k++) if (sets[k]) for (unsigned i = 0; i < sets[k]->fd_count; i++) fds[n++] = {sets[k]->fd_array[i], ev[k], 0};
     int ms = tv ? int(tv->tv_sec * 1000 + tv->tv_usec / 1000) : -1;
-    int rc = poll(fds, n, ms);
+    // a signal (SIGUSR1's screenshot) isn't an error, as Winsock has none: waited again for what is left
+    auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms < 0 ? 0 : ms);
+    int rc;
+    while ((rc = poll(fds, n, ms)) < 0 && errno == EINTR)
+        if (ms >= 0) ms = int(std::max<long long>(0, std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count()));
     if (rc < 0) return rc;
     int total = 0, j = 0;
     for (int k = 0; k < 3; k++) {

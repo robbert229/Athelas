@@ -48,6 +48,13 @@ input::Pad LocalSample();  // xapi.cpp: this PC's first controller (and a test s
 namespace {
 
 constexpr uint32_t kMagic = 0x504E5441;  // "ATNP"
+// off Windows the socket isn't inherited by a relaunch (kernel::Relaunch execs in this process), which would hold the
+// port; Windows' CreateProcess inherits no handles here
+#ifdef _WIN32
+constexpr int kCloseOnExec = 0;
+#else
+constexpr int kCloseOnExec = SOCK_CLOEXEC;
+#endif
 enum : uint8_t { kHello = 1, kWelcome = 2, kInput = 3, kHash = 4, kRefuse = 5, kFile = 6, kFileAck = 7, kFilesDone = 8,
                  kFilesDoneAck = 9, kAlive = 10, kBye = 11, kPing = 12, kPong = 13 };
 constexpr uint32_t kChunk = 1024;
@@ -563,7 +570,7 @@ std::string AskInternetAddress(SOCKET sock) {
 // this PC's address on its home network (the route out to the internet, no packet sent): for a friend in the same house,
 // whose router may not send the internet address back inside. Empty when there is none.
 std::string LanAddress() {
-    SOCKET t = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    SOCKET t = ::socket(AF_INET, SOCK_DGRAM | kCloseOnExec, IPPROTO_UDP);
     if (t == INVALID_SOCKET) return {};
     sockaddr_in to{};
     to.sin_family = AF_INET;
@@ -625,7 +632,7 @@ void Start() {
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
-    s.s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    s.s = ::socket(AF_INET, SOCK_DGRAM | kCloseOnExec, IPPROTO_UDP);
     sockaddr_in me{};
     me.sin_family = AF_INET;
     if (spec.rfind("host:", 0) == 0) {
