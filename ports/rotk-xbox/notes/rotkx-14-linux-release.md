@@ -11,7 +11,8 @@ Each in a podman container of the distribution's own image with nothing added bu
 (llvmpipe), Xvfb and xdotool; the game mounted read-only, the release read-only, the home empty but for a
 `settings.toml` of three lines (windowed 640x480, `skip_all_videos`: llvmpipe holds 30 fps at that size). Driven by
 keys through xdotool: Enter skips the first start's Helm's Deep film, then in Helm's Deep Esc, Exit To Menu, yes,
-and the main menu (Load Game, New Game) is shot by SIGUSR1. A first start (no saved game) always opens with that film
+and the main menu is shot by SIGUSR1 (its Load Game / New Game page on the first runs; Single Player, Co-op,
+Options, Credits, Exit on the final ones, built on integration/m2 with M2-A, B and C's work in). A first start (no saved game) always opens with that film
 and the level, never the title (`rotk_movies.cpp`), so the main menu is reached through the pause menu.
 
 | Distribution | glibc | Vulkan | tarball | AppImage |
@@ -20,7 +21,7 @@ and the level, never the title (`rotk_movies.cpp`), so the main menu is reached 
 | Fedora 44 | 2.43 | llvmpipe, LLVM 22, Vulkan 1.4.354 | main menu | main menu (extract-and-run) |
 | Arch (SteamOS stand-in) | 2.44 | llvmpipe, LLVM 23, Vulkan 1.4.363 | main menu | main menu, mounted through FUSE (`/dev/fuse`, fuse3) |
 
-Every run exited 0 on SIGTERM. With no sound server in a container SDL finds no audio driver and the game logs
+Every run exited 0 on SIGTERM, the final six (each package on each distribution, one at a time) as the first. With no sound server in a container SDL finds no audio driver and the game logs
 `audio: SDL audio unavailable (...), no sound` and plays on. Ubuntu's image has no `fusermount`, so the AppImage
 there says "Cannot mount AppImage, please check your FUSE setup"; desktops and SteamOS have it, and the docs say
 `--appimage-extract-and-run` or the tarball otherwise.
