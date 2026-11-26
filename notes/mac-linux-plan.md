@@ -119,9 +119,15 @@ Work on `integration/m2` (stacked on `integration/m1`), in four workstreams:
     clang 22 without more work), so the exe needs only libc and libm. Its `AppRun` puts the data in
     `$XDG_DATA_HOME/athelas/rotk-xbox` through the existing `--config`/`--saves`/... arguments, so decision 1 needed
     no runtime change for it. Online co-op still writes `online-session` beside the exe (read-only in an AppImage):
-    fix that when Linux co-op lands. The `.tar.xz` isn't made yet.
+    fix that when Linux co-op lands.
+  - M2: `appimage.sh` became `release.sh`, which also makes `ROTKXbox-<version>-linux-x86_64.tar.xz`. Both start
+    through `linux/rotkxbox.sh` (the AppImage's AppRun), so they keep their data in the same place; a `portable.txt`
+    beside the AppImage or in the tarball's folder keeps it there (decision 1's override). Run to the main menu in
+    clean Ubuntu 22.04, Fedora 44 and Arch containers (`ports/rotk-xbox/notes/rotkx-13-linux-release.md`).
 - **CI:** add a Linux job that builds the runtime and launcher without game code (the game can't be built in CI:
-  it needs the player's `default.xbe`). The harness tests stay local.
+  it needs the player's `default.xbe`). The harness tests stay local. Done for the runtime (M2): `build.yml`'s
+  `linux` job builds `xbe_smoke` and `xbe_port_check` with clang 22, runs them under Xvfb on llvmpipe and runs
+  `wincheck.sh`. The launcher waits for M4.
 - **README / dist-files:** Requirements and Steam Deck sections ("native" next to "Proton").
 
 ## M3: macOS (Apple Silicon)

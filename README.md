@@ -85,9 +85,18 @@ which gathers the logs for you.
 - Windows 10 or 11 (64-bit). Steam Deck and Linux through Proton; Mac through CrossOver (less tested).
 - Xbox games: a DirectX 12 graphics card.
 - The Return of the King (PC): a Vulkan graphics driver is recommended (without one, a few graphics options are off).
+- The Return of the King (Xbox) natively on Linux and the Steam Deck: an x86-64-v2 processor (SSE4.2), glibc 2.35 or
+  newer (Ubuntu 22.04, Fedora 36, Debian 12, SteamOS 3 and later) and a Vulkan 1.2 driver.
 
-**Steam Deck / Linux:** extract Athelas into a folder, then in Steam use **Add a Non-Steam Game** on `Athelas.exe`
-and set **Properties > Compatibility** to the newest Proton. The Deck's controls work as an Xbox controller.
+**Steam Deck / Linux, through Proton:** extract Athelas into a folder, then in Steam use **Add a Non-Steam Game** on
+`Athelas.exe` and set **Properties > Compatibility** to the newest Proton. The Deck's controls work as an Xbox
+controller.
+
+**Steam Deck / Linux, native (The Return of the King, Xbox):** download `ROTKXbox-<version>-linux-x86_64.tar.xz` (or
+the `.AppImage`), extract it, put your game in its `assets` folder and start `rotkxbox.sh`. On the Deck, add
+`rotkxbox.sh` with **Add a Non-Steam Game** and leave Compatibility off. Settings and saves go to
+`~/.local/share/athelas/rotk-xbox`. The port's [README](ports/rotk-xbox/rotkxbox/README.md#linux-and-steam-deck) has
+the details.
 
 More detail on every setting, key and platform is in `README.txt` in the download.
 
@@ -107,8 +116,9 @@ sudo apt install gcc-mingw-w64-i686 g++-mingw-w64-i686 p7zip-full
 SDL_DIR=path/to/SDL3-3.4.20 DXVK_DIR=path/to/dxvk-3.1.1 DSOAL_DIR=third_party/dsoal sh scripts/package.sh <version>
 ```
 
-The Xbox ports build on Windows with each port's `build.bat` (see its README in `ports/`). Recompiling them needs
-your own game's `default.xbe`, which is never part of this repository.
+The Xbox ports build on Windows with each port's `build.bat` (see its README in `ports/`). The Return of the King
+(Xbox) also builds on Linux with `build.sh`, and `release.sh` makes its Linux release. Recompiling them needs your own
+game's `default.xbe`, which is never part of this repository.
 
 | Folder | What's in it |
 |---|---|
