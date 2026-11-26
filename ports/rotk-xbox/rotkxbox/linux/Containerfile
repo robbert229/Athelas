@@ -1,12 +1,12 @@
-# The AppImage's build machine: Ubuntu 22.04, so the exe asks for nothing newer than glibc 2.35 and runs on any
-# distribution from 2022 on and on the Steam Deck. Clang 22 from apt.llvm.org (as the Fedora build), libstdc++ 12
-# linked in statically. The -dev packages are what SDL 3 looks for: it opens the libraries themselves at run time,
+# The Linux release's build machine (release.sh): Ubuntu 22.04, so the exe asks for nothing newer than glibc 2.35
+# and runs on any distribution from 2022 on and on the Steam Deck. Clang 22 from apt.llvm.org (as the Fedora build),
+# libstdc++ 12 linked in statically. The -dev packages are what SDL 3 looks for: it opens the libraries themselves at run time,
 # so a system without Wayland, PipeWire or JACK still starts.
 FROM docker.io/library/ubuntu:22.04
 ARG LLVM=22
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg git python3 python3-pip file desktop-file-utils \
+        ca-certificates curl gnupg git python3 python3-pip file desktop-file-utils xz-utils \
         libstdc++-12-dev \
         libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev \
         libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libegl-dev libgles-dev libgl-dev \

@@ -1,17 +1,20 @@
 #!/bin/bash
-# appimage.sh: the Linux release, as release.bat is the Windows one. Builds the game in an Ubuntu 22.04 container
-# (appimage/Containerfile, so it runs on any distribution from 2022 on and on the Steam Deck), then packs
-#   release/ROTKXbox-<version>-x86_64.AppImage         the exe, lang\, LICENSE.txt and THIRD_PARTY.txt (both must
-#                                                      ship with it), AppRun (appimage/AppRun: where the game files,
-#                                                      settings and saves are), the .desktop file and the icon
-#   release/ROTKXbox-<version>-x86_64.AppImage.sha256  as sha256sum writes it
-#   release/ROTKXbox-<version>-x86_64.debug            the exe's debug information, for reading a crash dump
+# release.sh: the Linux release, as release.bat is the Windows one. Builds the game in an Ubuntu 22.04 container
+# (linux/Containerfile, so it runs on any distribution from 2022 on and on the Steam Deck), then packs
+#   release/ROTKXbox-<version>-x86_64.AppImage           the exe, lang/, LICENSE.txt and THIRD_PARTY.txt (both must
+#                                                        ship with it), linux/rotkxbox.sh as its AppRun (where the
+#                                                        game files, settings and saves are), the .desktop file and
+#                                                        the icon
+#   release/ROTKXbox-<version>-linux-x86_64.tar.xz       the same in a folder of that name, rotkxbox.sh its start
+#                                                        script, with linux/README.txt
+#   release/*.sha256                                     each as sha256sum writes it
+#   release/ROTKXbox-<version>-x86_64.debug              the exe's debug information, for reading a crash log
 # No game files go in. Needs podman (from a distrobox or toolbox it uses the host's) and the game in assets/ as
 # build.sh does; the container image, CMake's downloads and appimagetool need the network the first time.
 set -e
 GAME_EXE=ROTKXbox
 PRESET=linux-appimage
-IMAGE=localhost/athelas-rotkxbox-appimage:jammy-llvm22
+IMAGE=localhost/athelas-rotkxbox-appimage:jammy-llvm22  # (the name kept: an image already built is used)
 # appimagetool and the AppImage runtime it puts in front, pinned with their SHA-256 (GitHub's release digests)
 APPIMAGETOOL_URL=https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
 APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
@@ -28,7 +31,7 @@ TOOLS=$HERE/out/appimage-tools
 
 fail() {
     echo
-    echo "  APPIMAGE FAILED. $1"
+    echo "  RELEASE FAILED. $1"
     echo
     exit 1
 }
@@ -43,8 +46,8 @@ if [ "$1" != "--in-container" ]; then
     else
         fail "podman is needed (Fedora: sudo dnf install podman; Ubuntu: sudo apt install podman)."
     fi
-    echo "[1/4] Build container ($IMAGE)"
-    "${PODMAN[@]}" build -q -t "$IMAGE" -f appimage/Containerfile appimage >/dev/null ||
+    echo "[1/5] Build container ($IMAGE)"
+    "${PODMAN[@]}" build -q -t "$IMAGE" -f linux/Containerfile linux >/dev/null ||
         fail "The container image didn't build."
     # the source, the game files and git's folder (a worktree's lives elsewhere) at the same paths inside, so the
     # build folder's absolute paths hold either side
@@ -53,11 +56,11 @@ if [ "$1" != "--in-container" ]; then
         case "$extra/" in "$ROOT"/*) ;; *) mounts+=(-v "$extra:$extra:ro") ;; esac
     done
     exec "${PODMAN[@]}" run --rm --userns=keep-id --security-opt label=disable "${mounts[@]}" -w "$HERE" \
-        -e CI=1 -e HOME=/tmp "$IMAGE" ./appimage.sh --in-container
+        -e CI=1 -e HOME=/tmp "$IMAGE" ./release.sh --in-container
 fi
 
 # ---- inside ----
-echo "[2/4] Game build ($PRESET)"
+echo "[2/5] Game build ($PRESET)"
 ./build.sh "$PRESET" || exit 1
 EXE=$OUT/$GAME_EXE
 SDK=$(head -1 "$OUT/sdk_dir.txt")
@@ -68,12 +71,12 @@ newest=$(llvm-readelf --dyn-syms "$EXE" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC
     fail "$GAME_EXE asks for glibc $newest, newer than $GLIBC_MAX."
 if llvm-readelf -d "$EXE" | grep -E 'NEEDED.*lib(stdc\+\+|gcc_s)'; then fail "$GAME_EXE isn't linked with libstdc++ inside."; fi
 
-echo "[3/4] appimagetool"
+echo "[3/5] appimagetool"
 mkdir -p "$TOOLS"
 fetch() {  # <url> <sha256> <file>
     if [ ! -f "$3" ] || ! echo "$2  $3" | sha256sum -c --status; then
         curl -fsSL -o "$3.part" "$1" || fail "Couldn't download $1."
-        echo "$2  $3.part" | sha256sum -c --status || fail "$1 isn't the file pinned in appimage.sh."
+        echo "$2  $3.part" | sha256sum -c --status || fail "$1 isn't the file pinned in release.sh."
         mv "$3.part" "$3"
     fi
 }
@@ -81,7 +84,7 @@ fetch "$APPIMAGETOOL_URL" "$APPIMAGETOOL_SHA256" "$TOOLS/appimagetool"
 fetch "$RUNTIME_URL" "$RUNTIME_SHA256" "$TOOLS/runtime-x86_64"
 chmod +x "$TOOLS/appimagetool"
 
-echo "[4/4] AppImage"
+echo "[4/5] AppImage"
 version=$("$EXE" --version | awk '{print $NF}')
 [ -n "$version" ] || fail "$GAME_EXE --version said nothing."
 name=$GAME_EXE-$version-x86_64
@@ -96,9 +99,9 @@ llvm-objcopy --strip-debug --add-gnu-debuglink="release/$name.debug" "$EXE" "$AP
 [ -d lang ] && cp -r lang "$APPDIR/usr/bin/lang"
 cp "$SDK/LICENSE" "$APPDIR/usr/share/doc/rotkxbox/LICENSE.txt"
 cp "$SDK/THIRD_PARTY.txt" "$APPDIR/usr/share/doc/rotkxbox/THIRD_PARTY.txt"
-install -m 755 appimage/AppRun "$APPDIR/AppRun"
-cp appimage/rotkxbox.desktop "$APPDIR/rotkxbox.desktop"
-cp appimage/rotkxbox.desktop "$APPDIR/usr/share/applications/rotkxbox.desktop"
+install -m 755 linux/rotkxbox.sh "$APPDIR/AppRun"
+cp linux/rotkxbox.desktop "$APPDIR/rotkxbox.desktop"
+cp linux/rotkxbox.desktop "$APPDIR/usr/share/applications/rotkxbox.desktop"
 cp "$ROOT/launcher/art/icon_256.png" "$APPDIR/rotkxbox.png"
 cp "$ROOT/launcher/art/icon_256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/rotkxbox.png"
 ln -s rotkxbox.png "$APPDIR/.DirIcon"
@@ -112,8 +115,27 @@ APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 "$TOOLS/appimagetool" --no-appstream --ru
 }
 (cd release && sha256sum "$name.AppImage" >"$name.AppImage.sha256")
 
+echo "[5/5] .tar.xz"
+# the AppImage's files in a plain folder: the exe and lang/ at the top, beside the start script
+tname=$GAME_EXE-$version-linux-x86_64
+TARDIR=$OUT/tar
+rm -rf "$TARDIR"
+mkdir -p "$TARDIR/$tname"
+cp -a "$APPDIR/usr/bin/." "$TARDIR/$tname/"
+cp "$APPDIR"/usr/share/doc/rotkxbox/*.txt "$APPDIR/rotkxbox.png" "$APPDIR/rotkxbox.desktop" "$TARDIR/$tname/"
+install -m 755 linux/rotkxbox.sh "$TARDIR/$tname/rotkxbox.sh"
+cp linux/README.txt "$TARDIR/$tname/README.txt"
+# the same bytes from the same files: owners, order and times fixed (the time: the last commit's)
+stamp=$(git -C "$ROOT" log -1 --format=%ct 2>/dev/null || date +%s)
+rm -f "release/$tname.tar.xz" "release/$tname.tar.xz.sha256"
+tar -C "$TARDIR" --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$stamp" -cf - "$tname" |
+    xz -9e -T0 >"release/$tname.tar.xz" || fail "tar failed."
+(cd release && sha256sum "$tname.tar.xz" >"$tname.tar.xz.sha256")
+
 echo
 echo "  AppImage: $HERE/release/$name.AppImage ($(du -h "release/$name.AppImage" | cut -f1))"
-echo "  Put the game (an .iso, or a folder named assets) beside it, or run it with --game <folder or .iso>."
-echo "  Settings, saves and logs: ~/.local/share/athelas/rotk-xbox"
+echo "  tar.xz:   $HERE/release/$tname.tar.xz ($(du -h "release/$tname.tar.xz" | cut -f1))"
+echo "  Put the game (an .iso, or a folder named assets) beside the AppImage or in the tarball's folder, or start it"
+echo "  with --game <folder or .iso>."
+echo "  Settings, saves and logs: ~/.local/share/athelas/rotk-xbox (a portable.txt there keeps them beside it)"
 echo
