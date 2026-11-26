@@ -83,13 +83,12 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-$LLVM main" |
             sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          # SDL 3's -dev packages (it opens the libraries at run time), Xvfb and Mesa's Vulkan (llvmpipe), mingw's
-          # headers for wincheck.sh
+          # SDL 3's -dev packages (it opens the libraries at run time), Xvfb and Mesa's Vulkan (llvmpipe)
           sudo apt-get install -y --no-install-recommends clang-$LLVM lld-$LLVM ninja-build \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libegl-dev libgl-dev libdrm-dev \
             libgbm-dev libpulse-dev libasound2-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev \
-            xvfb xauth mesa-vulkan-drivers libvulkan1 mingw-w64 g++-mingw-w64-x86-64-posix
+            xvfb xauth mesa-vulkan-drivers libvulkan1
           for t in clang clang++ ld.lld; do sudo ln -sf /usr/bin/$t-$LLVM /usr/local/bin/$t; done
           clang++ --version | head -1
       - name: Build xbe_smoke and xbe_port_check
@@ -100,9 +99,10 @@ jobs:
       - name: Run them
         working-directory: sdk/smoke/build
         env:
-          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           SDL_AUDIO_DRIVER: dummy
         run: |
+          # llvmpipe (Ubuntu names it lvp_icd.json, Fedora lvp_icd.x86_64.json)
+          export VK_DRIVER_FILES=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)
           ./xbe_smoke
           xvfb-run -a -s '-screen 0 1280x800x24' ./xbe_smoke --window --frames 60
           xvfb-run -a -s '-screen 0 1280x800x24' ./xbe_smoke --vulkan --audio --frames 120
@@ -114,12 +114,12 @@ jobs:
         run: tail -n 40 sdk/smoke/build/logs/*.log || true
       - name: Windows syntax check
         run: |
-          # Fedora's mingw64 layout, which wincheck.sh reads, from Ubuntu's packages
-          mw=$RUNNER_TEMP/mingw
-          mkdir -p $mw
-          cp -r /usr/x86_64-w64-mingw32/include $mw/include
-          ln -s "$(ls -d /usr/lib/gcc/x86_64-w64-mingw32/*-posix | sort -V | tail -1)/include/c++" $mw/include/c++
-          MINGW_ROOT=$mw sdk/smoke/wincheck.sh $(git ls-files 'sdk/runtime/*.cpp' 'ports/rotk-xbox/rotkxbox/src/*.cpp')
+          # in Fedora, whose mingw64 headers wincheck.sh is written for (Ubuntu's are older: no DRED, and a
+          # __cpuidex clash with clang 22); the dependencies' headers from the configure above
+          docker run --rm -v "$PWD:/w" -w /w registry.fedoraproject.org/fedora:44 bash -c '
+            dnf install -y -q clang mingw64-gcc-c++ mingw64-headers git >/dev/null &&
+            git config --global --add safe.directory /w &&
+            sdk/smoke/wincheck.sh $(git ls-files "sdk/runtime/*.cpp" "ports/rotk-xbox/rotkxbox/src/*.cpp")'
   publish:
     if: github.ref_type == 'tag'
     needs: build
