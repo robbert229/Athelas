@@ -15,6 +15,9 @@
 // first, the window opening behind it at the first frame as a game's does.
 // --discord <application id> (with --window): the Discord status on, the frame count as its state, switched off
 // again for the last quarter of the frames (the status cleared, the connection closed).
+// --keycaps: the keyboard's key caps for the eight buttons A to RT, as the ports put them in the game's hints
+// (app::KeyCapPicture, the keys from [keyboard]), written to keycaps/<button>.png beside the exe: GDI's text on Windows,
+// stb_truetype's elsewhere.
 // --crash segv|abort|overflow (off Windows): the crash handler installed, then that crash, on a thread the way the
 // kernel starts the game's (its own signal stack): a crash log should land in CrashDumps beside the exe.
 #include <algorithm>
@@ -29,9 +32,11 @@
 #include <windows.h>  // off Windows the compat header: the WM_ and VK_ names
 
 #include "app/app.h"
+#include "app/prompt_style.h"
 #include "core/input.h"
 #include "core/keys.h"
 #include "core/log.h"
+#include "gpu/texture_pack.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #ifndef _WIN32
@@ -80,6 +85,7 @@ struct Options {
     int frames = 0;
     int fps = 60;
     std::string crash;
+    bool keycaps = false;
 };
 
 // what the window hands the game, logged as it comes (a game's own hooks see the same)
@@ -151,13 +157,16 @@ int RunWindow(const Options& o) {
                 app::Get().discord = false;
             }
             // the keyboard player's controller, once a frame as a game polls it
-            input::Pad p{};
-            keys::Merge(int(app::Get().keyboard_player) - 1, p);
+            input::Pad p{}, other{};
+            const int player = int(app::Get().keyboard_player);
+            keys::Merge(player - 1, p);
+            keys::Merge(2 - player, other);  // the other player's port: nothing from the keys
             char text[128];
             std::snprintf(text, sizeof text, "buttons %04X, A B X Y black white LT RT %u %u %u %u %u %u %u %u, left stick %d %d",
                           p.buttons, p.analog[0], p.analog[1], p.analog[2], p.analog[3], p.analog[4], p.analog[5],
                           p.analog[6], p.analog[7], p.lx, p.ly);
-            if (pad_was != text) LOGR("smoke: frame %d, keyboard player's controller: %s", n, text);
+            if (other.connected || other.buttons || other.lx || other.ly) LOGR("smoke: frame %d, keys on player %d's port", n, 3 - player);
+            if (pad_was != text) LOGR("smoke: frame %d, player %d's controller (the keyboard): %s", n, player, text);
             pad_was = text;
             if (clock::now() - second >= std::chrono::seconds(1)) {
                 uint32_t pw = 0, ph = 0;
@@ -197,10 +206,12 @@ bool Parse(int argc, char** argv, Options& o) {
             smoke::g_splash = true;
         } else if (!std::strcmp(argv[i], "--discord") && i + 1 < argc) {
             o.discord = argv[++i];
+        } else if (!std::strcmp(argv[i], "--keycaps")) {
+            o.keycaps = true;
         } else if (!std::strcmp(argv[i], "--crash") && i + 1 < argc) {
             o.crash = argv[++i];
         } else {
-            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID] [--crash segv|abort|overflow]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID] [--keycaps] [--crash segv|abort|overflow]\n", argv[0]);
             return false;
         }
     }
@@ -224,6 +235,27 @@ int Smoke(int argc, char** argv) {
     LOGR("smoke: settings from %s", app::SettingsFile().string().c_str());
     if (!mem::Init()) return Fail("guest memory");
     LOGR("smoke: guest memory up");
+    if (o.keycaps) {
+        auto dir = app::SettingsFile().parent_path() / "keycaps";
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        static const struct {
+            const char* button;
+            keys::Action action;
+        } kCaps[] = {{"A", keys::kA},         {"B", keys::kB},         {"X", keys::kX},
+                     {"Y", keys::kY},         {"WHITE", keys::kWhite}, {"BLACK", keys::kBlack},
+                     {"LT", keys::kLeftTrigger}, {"RT", keys::kRightTrigger}};
+        for (const auto& c : kCaps) {
+            gpu::pack::Image img;
+            std::string key = keys::FirstKey(c.action);
+            if (!app::KeyCapPicture(c.button, 256, 256 * 43 / 64, 0.07f, img) || img.levels.empty()) {
+                LOGR("smoke: no key cap for %s (%s)", c.button, key.c_str());
+                continue;
+            }
+            bool ok = gpu::pack::WritePng(dir / (std::string(c.button) + ".png"), img.width, img.height, img.levels[0]);
+            LOGR("smoke: key cap for %s (%s)%s", c.button, key.c_str(), ok ? "" : ", not written");
+        }
+    }
 #ifndef _WIN32
     if (!o.crash.empty()) Crash(o.crash);
     if (o.vulkan || o.audio) {

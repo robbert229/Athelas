@@ -7,7 +7,10 @@ every recompiled function traps.
 
 Alone it starts logging, the settings file and guest memory, then exits 0. `--window` opens the game window and logs
 what reaches the game from it, with a paced frame thread (`--fps`), and the keyboard player's controller as the keys
-and the mouse make it, whenever it changes. `--vulkan` opens the window and draws N frames
+and the mouse make it, whenever it changes. `--keycaps` writes the key caps the ports put in the game's hints for the
+buttons A to RT (the keys from `[keyboard]`) to `keycaps/` beside the exe: GDI's on Windows (`xbe_smoke.exe` under Wine
+too), stb_truetype's elsewhere. `XBE_KEYCAP_FONT=builtin` draws them with the built-in font, as on a system without
+Arial Bold or Liberation Sans Bold. `--vulkan` opens the window and draws N frames
 (`--frames N`, 0 until the window is closed) through the real Vulkan backend: a clear and three triangles through
 `Backend::Draw` (fixed-function state, shaders through glslang), shown at the console's 4:3 with the ImGui overlay, paced at `--fps` too (with v-sync, the screen's refresh is the
 most).
