@@ -1,7 +1,7 @@
 // TEMPORARY (Linux M1, notes/mac-linux-plan.md): stand ins, off Windows, for what the Win32-only sources left out of
 // that build provided (sdk/cmake/XbeRecomp.cmake, XBE_WIN32_ONLY_SOURCES), so the runtime links. Each workstream
 // deletes its stand ins as the real code lands; once nothing is left the file goes too. Nothing here is final.
-//   window/app layer (M1-B): splash.cpp, netplay_window.cpp, discord.cpp, system_info.cpp, handover.cpp (M2); the
+//   window/app layer (M1-B): splash.cpp, netplay_window.cpp, system_info.cpp, handover.cpp (M2); the
 //                            window, keyboard, frame cap and crash log are main_sdl.cpp, keyboard(_sdl).cpp,
 //                            screens_sdl.cpp and crash_posix.cpp
 //   renderer/audio (M1-C):   none left (gpu/vk.cpp's SDL surface, gpu/backend.cpp and audio/sdl_audio.cpp landed)
@@ -48,10 +48,5 @@ void LogSystem() {
 }
 
 }  // namespace app
-
-// discord.cpp: replaced in M2 (Discord's IPC socket instead of its named pipe)
-namespace discord {
-void Start() {}
-}  // namespace discord
 
 #endif  // !_WIN32

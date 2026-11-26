@@ -130,7 +130,7 @@ file(GLOB XBE_RUNTIME_SOURCES CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/*/*.cpp)
 # off Windows: no Direct3D 12, upscalers or XAudio2, and the Win32 window and app layer is left out until its SDL3
 # replacement lands; app/posix_pending.cpp stands in for what they provided (notes/mac-linux-plan.md, M1)
 set(XBE_WIN32_ONLY_SOURCES gpu/d3d12.cpp gpu/upscale.cpp audio/xaudio2.cpp app/main.cpp
-    app/splash.cpp app/netplay_window.cpp app/discord.cpp app/system_info.cpp app/handover.cpp)
+    app/splash.cpp app/netplay_window.cpp app/system_info.cpp app/handover.cpp)
 # the SDL3 window layer (app/main_sdl.cpp and its kin) is the other way round: everywhere but Windows
 set(XBE_SDL_APP_SOURCES app/main_sdl.cpp app/keyboard_sdl.cpp app/screens_sdl.cpp app/crash_posix.cpp)
 if(WIN32)
