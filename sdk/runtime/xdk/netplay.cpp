@@ -279,7 +279,15 @@ void Receive() {
         if (type == kHello && s.host) {
             uint64_t theirs = 0;
             if (n >= 13) std::memcpy(&theirs, buf + 5, 8);
-            if (theirs != ExeHash()) {
+            // tests: XBE_NETPLAY_ANY_BUILD lets in another build of the same game (a Linux and a Windows build: whether
+            // the two stay in step is what such a test finds out)
+            static const bool any_build = std::getenv("XBE_NETPLAY_ANY_BUILD") != nullptr;
+            if (theirs != ExeHash() && any_build && !s.connected) {
+                static bool told = false;
+                if (!told) LOGR("netplay: %s runs another build; let in for a test (XBE_NETPLAY_ANY_BUILD)", inet_ntoa(from.sin_addr));
+                told = true;
+            }
+            if (theirs != ExeHash() && !any_build) {
                 static bool told = false;
                 if (!told) LOGR("netplay: refused %s: player 2 runs another version of the game (both need the same Athelas update)",
                                 inet_ntoa(from.sin_addr));
