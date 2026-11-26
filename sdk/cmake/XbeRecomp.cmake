@@ -132,7 +132,8 @@ file(GLOB XBE_RUNTIME_SOURCES CONFIGURE_DEPENDS ${XBE_SDK_DIR}/runtime/*/*.cpp)
 set(XBE_WIN32_ONLY_SOURCES gpu/d3d12.cpp gpu/upscale.cpp audio/xaudio2.cpp app/main.cpp
     app/splash.cpp app/netplay_window.cpp app/system_info.cpp app/handover.cpp)
 # the SDL3 window layer (app/main_sdl.cpp and its kin) is the other way round: everywhere but Windows
-set(XBE_SDL_APP_SOURCES app/main_sdl.cpp app/keyboard_sdl.cpp app/screens_sdl.cpp app/crash_posix.cpp)
+set(XBE_SDL_APP_SOURCES app/main_sdl.cpp app/keyboard_sdl.cpp app/screens_sdl.cpp app/crash_posix.cpp
+    app/system_info_posix.cpp app/handover_posix.cpp)
 if(WIN32)
     list(REMOVE_ITEM XBE_RUNTIME_SOURCES ${XBE_SDK_DIR}/runtime/app/posix_pending.cpp
          ${XBE_SDK_DIR}/runtime/audio/sdl_audio.cpp)
