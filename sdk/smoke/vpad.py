@@ -2,14 +2,16 @@
 """vpad.py: a virtual Xbox 360 controller through uinput, driven by the harness's pad scripts, for playing a port's
 native build from a script.
 
-  vpad.py [--fps N] [--delay S] [--fifo PATH] [script ...]
+  vpad.py [--fps N] [--delay S] [--fifo PATH] [--product ID] [script ...]
 
 Each script is the harness's format (sdk/harness/README.md): lines of "frame buttons [frames held]" (held 8 frames by
 default), # comments, buttons joined with +: UP DOWN LEFT RIGHT START BACK A B X Y BLACK WHITE LT RT LS LSD LSL LSR
 RSU RSD RSL RSR. A frame here is 1/fps seconds (default 60) from the controller's creation plus --delay. Scripts play
 one after the other. With --fifo the controller then stays plugged in and plays lines from that pipe as they come:
 "buttons [frames held]" pressed at once, or "wait frames". Without it the controller is unplugged when the scripts
-end. Needs python3-evdev and write access to /dev/uinput.
+end. --product gives the pad another Microsoft product id (0x028E, the wired 360 pad, by default), so that two game
+instances can each take their own: SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=0x045e/<id> in each game's environment.
+Needs python3-evdev and write access to /dev/uinput.
 """
 import argparse
 import os
@@ -32,7 +34,7 @@ STICK = {"LS": (e.ABS_Y, -32767), "LSD": (e.ABS_Y, 32767), "LSL": (e.ABS_X, -327
 AXES = [e.ABS_X, e.ABS_Y, e.ABS_RX, e.ABS_RY, e.ABS_Z, e.ABS_RZ, e.ABS_HAT0X, e.ABS_HAT0Y]
 
 
-def make_pad():
+def make_pad(product=0x028E):
     stick = AbsInfo(0, -32768, 32767, 16, 128, 0)
     trig = AbsInfo(0, 0, 255, 0, 0, 0)
     hat = AbsInfo(0, -1, 1, 0, 0, 0)
@@ -43,7 +45,7 @@ def make_pad():
         e.EV_FF: [e.FF_RUMBLE],
     }
     # the wired Xbox 360 controller's ids, as the kernel's xpad driver gives them: SDL knows its mapping
-    return UInput(caps, name="Microsoft X-Box 360 pad", vendor=0x045E, product=0x028E, version=0x0110,
+    return UInput(caps, name="Microsoft X-Box 360 pad", vendor=0x045E, product=product, version=0x0110,
                   bustype=e.BUS_USB, max_effects=16)
 
 
@@ -65,8 +67,8 @@ def state_of(buttons):
 
 
 class Pad:
-    def __init__(self, log):
-        self.ui = make_pad()
+    def __init__(self, log, product=0x028E):
+        self.ui = make_pad(product)
         self.now = {}
         self.log = log
         # force feedback: the kernel hands each upload and erase to this process and holds the game's ioctl until it
@@ -146,6 +148,7 @@ def main():
     ap.add_argument("--fps", type=float, default=60)
     ap.add_argument("--delay", type=float, default=0, help="seconds before the first script's frame 0")
     ap.add_argument("--fifo", help="a pipe to read live presses from once the scripts have played")
+    ap.add_argument("--product", type=lambda v: int(v, 0), default=0x028E, help="the USB product id (Microsoft's vendor id)")
     ap.add_argument("scripts", nargs="*")
     a = ap.parse_args()
     start = time.monotonic()
@@ -153,7 +156,7 @@ def main():
     def log(msg):
         print(f"vpad {time.monotonic() - start:7.2f}s {msg}", flush=True)
 
-    pad = Pad(log)
+    pad = Pad(log, a.product)
     log(f"plugged in: {pad.ui.device.path}")
     try:
         t = time.monotonic() + a.delay
