@@ -255,8 +255,10 @@ bool Gamescope() {
 void LogPlace() {
     static const char* const kModes[] = {"fullscreen", "borderless", "windowed"};
     const char* on = SDL_GetDisplayName(SDL_GetDisplayForWindow(g_window));
-    LOGR("display: %s on %s, %ux%u pixels", kModes[uint32_t(Get().display_mode) % 3], on ? on : "a screen",
-         g_pixel_w.load(), g_pixel_h.load());
+    // a Wayland client can't place a window: windowed, the compositor picks the screen, not the setting
+    bool placed = Get().display_mode == DisplayMode::Windowed && std::strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0;
+    LOGR("display: %s on %s, %ux%u pixels%s", kModes[uint32_t(Get().display_mode) % 3], on ? on : "a screen",
+         g_pixel_w.load(), g_pixel_h.load(), placed ? " (the compositor's choice of screen)" : "");
 }
 
 // window thread: the display settings onto the window, as main.cpp's ApplyNow: windowed (centred, the picture at the

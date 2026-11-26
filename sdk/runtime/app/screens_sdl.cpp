@@ -51,11 +51,14 @@ void Refresh() {
     g_display = VideoUp() ? SDL_GetPrimaryDisplay() : 0;
     if (!want.empty() && want != "main") {
         bool found = false;
+        // DISPLAY2, its number alone (2), or the screen's own name (LG ULTRAGEAR, as the log's display lines say)
+        std::string as_name = want.find_first_not_of("0123456789") == std::string::npos ? "DISPLAY" + want : want;
         for (const Screen& s : Screens()) {
             const char* sdl_name = SDL_GetDisplayName(s.id);
-            if (strcasecmp(s.name.c_str(), want.c_str()) == 0 || (sdl_name && strcasecmp(sdl_name, want.c_str()) == 0)) {
+            if (strcasecmp(s.name.c_str(), as_name.c_str()) == 0 || (sdl_name && strcasecmp(sdl_name, want.c_str()) == 0)) {
                 g_display = s.id;
                 found = true;
+                break;  // two screens of one model: the first
             }
         }
         static bool logged = false;
