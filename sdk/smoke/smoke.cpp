@@ -1,5 +1,5 @@
 // xbe_smoke: the runtime started without a game, as far as each platform's host side goes so far.
-//   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change]
+//   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID]
 // Logging, the settings file and guest memory, then exit 0. --window (off Windows) opens the game window and runs its
 // event loop as a port does: keys, mouse buttons, the wheel, focus and close reach GameInfo::message as Win32
 // messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second.
@@ -9,6 +9,10 @@
 // while the frames are drawn (smoke_av.cpp). Exit 1 when either fails.
 // --display-change (off Windows, with --vulkan): a display's mode changed and the window's HDR state changed, as SDL
 // says them on a hot-plug, twice a second while the frames read the desktop mode the window thread keeps.
+// --splash (off Windows, with --window or --vulkan): the boot splash, smoke-splash.png or .bmp beside the exe, up
+// first, the window opening behind it at the first frame as a game's does.
+// --discord <application id> (with --window): the Discord status on, the frame count as its state, switched off
+// again for the last quarter of the frames (the status cleared, the connection closed).
 // --crash segv|abort|overflow (off Windows): the crash handler installed, then that crash, on a thread the way the
 // kernel starts the game's (its own signal stack): a crash log should land in CrashDumps beside the exe.
 #include <algorithm>
@@ -35,9 +39,13 @@
 
 namespace {
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
+std::atomic<int> g_frames{0};
+std::string Activity() { return "Smoke test"; }
+std::string ActivityState() { return "Frame " + std::to_string(g_frames.load() / 60 * 60); }
 }
 namespace smoke {  // smoke_av.cpp
 extern bool g_display_change;
+extern bool g_splash;
 void Ui(double fps);
 int Run(bool vulkan, bool sound, int frames);
 }  // namespace smoke
@@ -50,11 +58,13 @@ const app::GameInfo app::kGame = {
     .log = "smoke",
     .settings = "smoke.toml",
     .version = "xbe_smoke",
-    .splash = L"",
+    .splash = L"smoke-splash",  // --splash
     .missing = L"No game: the smoke test runs without one.",
     .images = {{"stand-in.xbe", "xbe_smoke"}},
     .message = Message,
     .ui = smoke::Ui,
+    .activity = Activity,            // --discord
+    .activity_state = ActivityState,
 };
 // what CMake writes from the xbe (add_xbe_image)
 extern const char kImageSha1[] = "";
@@ -62,6 +72,7 @@ extern const char kImageSha1[] = "";
 namespace {
 
 struct Options {
+    std::string discord;
     bool window = false, vulkan = false, audio = false;
     int frames = 0;
     int fps = 60;
@@ -111,7 +122,13 @@ void Crash(const std::string& kind) {
 
 // the window thread's loop on the main thread, as a port's; frames from another thread, as the game's
 int RunWindow(const Options& o) {
-    if (!app::StartWindow(true)) return 1;
+    bool splash = smoke::g_splash && app::OpenSplash();
+    if (!app::StartWindow(!splash)) return 1;
+    if (!o.discord.empty()) {
+        app::Get().discord = true;
+        app::Get().discord_app_id = o.discord;
+        discord::Start();
+    }
     uint32_t w = 0, h = 0;
     app::WindowPixelSize(w, h);
     LOGR("smoke: window up, %ux%u pixels, alive %d", w, h, app::WindowAlive());
@@ -121,8 +138,14 @@ int RunWindow(const Options& o) {
         auto start = clock::now(), second = start;
         int n = 0, last = 0;
         while (!stop && (!o.frames || n < o.frames)) {
+            app::SplashFirstFrame();
             app::Pace();
             n++;
+            g_frames = n;
+            if (!o.discord.empty() && o.frames && n == o.frames * 3 / 4) {
+                LOGR("smoke: Discord status off");
+                app::Get().discord = false;
+            }
             if (clock::now() - second >= std::chrono::seconds(1)) {
                 uint32_t pw = 0, ph = 0;
                 app::WindowPixelSize(pw, ph);
@@ -157,10 +180,14 @@ bool Parse(int argc, char** argv, Options& o) {
             o.fps = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--display-change")) {
             smoke::g_display_change = true;
+        } else if (!std::strcmp(argv[i], "--splash")) {
+            smoke::g_splash = true;
+        } else if (!std::strcmp(argv[i], "--discord") && i + 1 < argc) {
+            o.discord = argv[++i];
         } else if (!std::strcmp(argv[i], "--crash") && i + 1 < argc) {
             o.crash = argv[++i];
         } else {
-            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--crash segv|abort|overflow]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID] [--crash segv|abort|overflow]\n", argv[0]);
             return false;
         }
     }

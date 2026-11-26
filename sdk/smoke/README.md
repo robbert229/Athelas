@@ -13,14 +13,17 @@ most).
 `--audio` plays a 440/660 Hz tone through the platform audio output, alone for N / 60 seconds or while the frames are
 drawn. It exits 1 when the renderer doesn't start or the output pulls less than half real time. `--display-change`
 (with `--vulkan`) pushes a display mode change and a window HDR change twice a second, as SDL sends them when a screen
-is plugged in, while the frames read the desktop mode the window thread keeps.
+is plugged in, while the frames read the desktop mode the window thread keeps. `--splash` (with `--window` or `--vulkan`) shows
+the boot splash first, `smoke-splash.png` or `.bmp` beside the exe, and opens the window behind it at the first
+frame, as a game's. `--discord <application id>` (with `--window`) turns the Discord status on for the run, the frame count as
+its state, and off again for the last quarter of the frames; a stand-in server shows what reaches Discord's socket.
 
 ## Build and run (Linux)
 
 ```
 cmake -S sdk/smoke -B sdk/smoke/build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 ninja -C sdk/smoke/build xbe_smoke
-cd sdk/smoke/build && ./xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change]
+cd sdk/smoke/build && ./xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID]
 ```
 
 Useful with `--vulkan` and `--audio`: `XBE_VK_VALIDATE=1` (or `sync`) logs the Khronos validation layer's errors, or

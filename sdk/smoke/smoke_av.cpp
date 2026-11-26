@@ -24,6 +24,7 @@
 namespace smoke {
 
 bool g_display_change = false;
+bool g_splash = false;
 
 namespace {
 
@@ -147,6 +148,7 @@ bool Vulkan(int frames) {
             }
         }
         b->Draw(s, 5, (f & 1) * 3 * kTriangles, 3 * kTriangles, nullptr);  // D3DPT_TRIANGLELIST
+        app::SplashFirstFrame();  // as the game's Swap: the window shown behind --splash's
         b->Present(rt);
         app::Pace();
     }
@@ -187,7 +189,8 @@ bool ToneOk() {
 int Run(bool vulkan, bool sound, int frames) {
     kernel::g_base = mem::Base();  // the guest memory the renderer reads, as kernel/boot.cpp sets it for a game
 #ifndef _WIN32
-    if (!app::StartWindow(true)) {
+    bool splash = g_splash && app::OpenSplash();
+    if (!app::StartWindow(!splash)) {
         LOGE("smoke: no game window");
         return 1;
     }
