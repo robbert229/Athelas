@@ -1,6 +1,6 @@
 # The Return of the King - PC port
 
-An unofficial native PC port of the original Xbox game *The Lord of the Rings: The Return of the King* (US release), made by recompiling the game's own program for Windows with [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp). It adds frame rates up to 240, widescreen and ultrawide, sharper text and menus, keyboard and mouse, and fixes for slowdowns and vanishing enemies at high frame rates.
+An unofficial native PC port of the original Xbox game *The Lord of the Rings: The Return of the King* (US release), made by recompiling the game's own program for Windows and Linux (Steam Deck included) with [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp). It adds frame rates up to 240, widescreen and ultrawide, sharper text and menus, keyboard and mouse, and fixes for slowdowns and vanishing enemies at high frame rates.
 
 > [!NOTE]
 > No game files are included. You need your own copy of the Xbox game: a disc image (`.iso`) or its extracted files. This port is not affiliated with or endorsed by Electronic Arts, New Line Cinema, Warner Bros. or the Tolkien Estate.
@@ -10,6 +10,8 @@ An unofficial native PC port of the original Xbox game *The Lord of the Rings: T
 **With the Athelas launcher (recommended):** the `ROTK-Xbox` folder sits beside `Athelas.exe` in the Athelas download. Choose your game's folder or disc image in the launcher. The settings are on the same page as the PC version's (ROTK Fix), and are kept in its `ROTKFix.ini`.
 
 **On its own:** put your game in the `assets` folder beside `ROTKXbox.exe` (the `.iso`, or `default.xbe` with the game's folders beside it) and run it. Settings are then in `settings.toml` beside the exe.
+
+**On Linux and the Steam Deck:** a native build, no Proton or Wine. See [Linux and Steam Deck](#linux-and-steam-deck).
 
 The US release of the game is supported. Another release is detected and you are asked before it starts.
 
@@ -87,17 +89,52 @@ The picture is darker than the PC version's because it keeps the Xbox's brightne
 
 ## Requirements
 
-- Windows 10 or 11, 64-bit.
-- A graphics card that supports Direct3D 12.
+- Windows 10 or 11, 64-bit, and a graphics card that supports Direct3D 12.
+- Or Linux, natively: an x86-64-v2 processor (SSE4.2: Intel from 2008, AMD from 2011), glibc 2.35 or newer (Ubuntu
+  22.04, Fedora 36, Debian 12, SteamOS 3 and later) and a Vulkan 1.2 driver (Mesa or NVIDIA's). An X11 or Wayland
+  desktop, or gamescope.
 - A keyboard and mouse or a controller.
+
+## Linux and Steam Deck
+
+The Linux release is two downloads of the same game; take either:
+
+- `ROTKXbox-<version>-linux-x86_64.tar.xz`: extract it (`tar -xf ...`), put the game in a folder named `assets` inside
+  it (or the `.iso` in the folder itself), and start `./rotkxbox.sh`.
+- `ROTKXbox-<version>-x86_64.AppImage`: one file. Make it executable (`chmod +x`), put the game beside it (an `.iso`,
+  or a folder named `assets`) and start it. It needs FUSE, which desktops and SteamOS have; where it says it cannot
+  mount, start it with `--appimage-extract-and-run`, or use the `.tar.xz`.
+
+Either can be started with `--game <folder or .iso>` (or `ROTKXBOX_GAME`) when the game is elsewhere, and
+`--install-desktop` puts it in the desktop's menu (`--remove-desktop` takes it out). Nothing else needs installing
+beyond the graphics driver: if the game says it found no Vulkan, install `mesa-vulkan-drivers` (Ubuntu, Debian,
+Fedora) or `vulkan-radeon` / `vulkan-intel` (Arch).
+
+**Where its files go.** Settings (`settings.toml`), saves, logs, the shader cache, screenshots and texture packs go to
+`~/.local/share/athelas/rotk-xbox` (`$XDG_DATA_HOME/athelas/rotk-xbox`), the same for both downloads. `ROTKXBOX_DATA`
+moves them; an empty `portable.txt` beside the AppImage, or in the tarball's folder, keeps them there instead. Any of
+`--config`, `--saves`, `--log`, `--shader-cache`, `--screenshots` or `--textures` given on the command line wins.
+
+**Steam Deck**, natively, next to the Proton way of running Athelas:
+1. In Desktop Mode, extract the `.tar.xz` (Ark opens it), for example into `/home/deck/Games/ROTKXbox`, and put your
+   game there as above. The game can also be on an SD card: start it with `--game <path>` (step 2's launch options).
+2. In Steam: **Games > Add a Non-Steam Game to My Library**, browse to `rotkxbox.sh` (or the AppImage) and add it.
+   Leave **Properties > Compatibility** off: no Proton. (`./rotkxbox.sh --install-desktop` first puts it in the list
+   of programs Steam offers.)
+3. Start it in Game Mode. The Deck's controls are an Xbox controller, and it fills the Deck's 1280x800 screen.
+4. Frame rate: set the game's own **Frame rate** to 60 (`F10`, or Back + Start, opens the settings). The game keeps
+   its normal speed at any rate it gets, so the Deck's frame limit (**... > Performance**) can then hold it at 40 to
+   save battery; 30 is the console's.
+
+Saves on the Deck are in `/home/deck/.local/share/athelas/rotk-xbox/saves`; back that folder up to keep them.
 
 ## Files it writes
 
-From Athelas: `ROTK-Xbox\saves` (save games), `ROTK-Xbox\rotkx.log` and `ROTK-Xbox\achievements.txt`, with the settings in `ROTKFix.ini`. On its own, beside the exe: `settings.toml`, `hdd` (save games), `shadercache` (safe to delete; it refills), `logs`, `textures` and `Screenshots`. Your game files are only read, never changed.
+From Athelas: `ROTK-Xbox\saves` (save games), `ROTK-Xbox\rotkx.log` and `ROTK-Xbox\achievements.txt`, with the settings in `ROTKFix.ini`. On its own, beside the exe: `settings.toml`, `hdd` (save games), `shadercache` (safe to delete; it refills), `logs`, `textures` and `Screenshots`. On Linux the same files go to `~/.local/share/athelas/rotk-xbox` (above). Your game files are only read, never changed.
 
 ## If something goes wrong
 
-The log says why the game stopped. A crash also leaves a `.dmp` file in `CrashDumps` beside the log. Include both when you report a problem.
+The log says why the game stopped. A crash also leaves a `.dmp` file in `CrashDumps` beside the log (on Linux, a crash log in `logs/CrashDumps`). Include both when you report a problem.
 
 ## Building
 
@@ -111,14 +148,11 @@ The recompiled code in `generated` is made from your own game and is never commi
 ### Linux
 
 `build.sh` is the Linux twin of `build.bat` (clang, lld, cmake, ninja, git and Python 3; the exe goes to
-`out/build/linux-release`). `appimage.sh` is the twin of `release.bat`: it builds in an Ubuntu 22.04 container through
-podman, so the result runs on any distribution from 2022 on and on the Steam Deck, and writes
-`release/ROTKXbox-<version>-x86_64.AppImage` with its `.sha256` and the exe's debug information (`.debug`).
-
-The AppImage holds no game files. Put the game beside it, as the Xbox disc's `.iso` or as a folder named `assets`
-with the extracted files, or start it with `--game <folder or .iso>` (or set `ROTKXBOX_GAME`). Its settings, saves,
-logs, shader cache and screenshots go to `~/.local/share/athelas/rotk-xbox` (`ROTKXBOX_DATA` moves them); any of
-`--config`, `--saves`, `--log`, `--shader-cache`, `--screenshots` or `--textures` given on the command line wins.
+`out/build/linux-release`). `release.sh` is the twin of `release.bat`: it builds in an Ubuntu 22.04 container through
+podman (`linux/Containerfile`), so the result runs on any distribution from 2022 on and on the Steam Deck, and writes
+to `release/` the AppImage, the `.tar.xz` (each with its `.sha256`) and the exe's debug information (`.debug`). Both
+start through `linux/rotkxbox.sh` (the AppImage's AppRun), which picks the data folder and finds the game. Neither
+holds any game files.
 
 ## Credits
 

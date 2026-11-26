@@ -577,6 +577,21 @@ welcome.
 - Save backups ("Back up saves") go to the Backups folder beside Athelas
   (the Windows desktop under Proton is hidden inside Steam's folders).
 
+THE RETURN OF THE KING (XBOX), NATIVE ON LINUX AND THE DECK
+The Xbox Return of the King also has a native Linux build, no Proton:
+ROTKXbox-<version>-linux-x86_64.tar.xz (or the .AppImage), a download of its
+own beside this one. It needs glibc 2.35 or newer (Ubuntu 22.04, Fedora 36,
+SteamOS 3 and later) and a Vulkan 1.2 driver.
+1. Extract it into a folder of its own and put your game in its assets
+   folder (default.xbe at the top), or the .iso in the folder itself.
+2. Start rotkxbox.sh. On the Deck: Add a Non-Steam Game on rotkxbox.sh, with
+   Compatibility left off.
+3. Set the game's frame rate to 60 (F10, or Back + Start); the Deck's frame
+   limit can hold it at 40 and the game keeps its speed.
+Its settings and saves are in ~/.local/share/athelas/rotk-xbox, not in the
+Athelas folder; Athelas doesn't start it or see its saves yet. Its
+README.txt has the rest.
+
 OTHER LINUX (WINE, LUTRIS, BOTTLES)
 Proton is the easiest way. With plain Wine (10 or newer), Lutris or Bottles:
 - The Xbox games need DirectX 12 through vkd3d-proton (Lutris and Bottles

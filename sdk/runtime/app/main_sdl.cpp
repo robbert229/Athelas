@@ -255,8 +255,10 @@ bool Gamescope() {
 void LogPlace() {
     static const char* const kModes[] = {"fullscreen", "borderless", "windowed"};
     const char* on = SDL_GetDisplayName(SDL_GetDisplayForWindow(g_window));
-    LOGR("display: %s on %s, %ux%u pixels", kModes[uint32_t(Get().display_mode) % 3], on ? on : "a screen",
-         g_pixel_w.load(), g_pixel_h.load());
+    // a Wayland client can't place a window: windowed, the compositor picks the screen, not the setting
+    bool placed = Get().display_mode == DisplayMode::Windowed && std::strcmp(SDL_GetCurrentVideoDriver(), "wayland") == 0;
+    LOGR("display: %s on %s, %ux%u pixels%s", kModes[uint32_t(Get().display_mode) % 3], on ? on : "a screen",
+         g_pixel_w.load(), g_pixel_h.load(), placed ? " (the compositor's choice of screen)" : "");
 }
 
 // window thread: the display settings onto the window, as main.cpp's ApplyNow: windowed (centred, the picture at the
@@ -357,8 +359,8 @@ void SendMapNotify(unsigned long xwindow, const std::string& display_name) {
     dlclose(lib);
 }
 
-void ShowOnX11() {
-    SDL_PropertiesID p = SDL_GetWindowProperties(g_window);
+void ShowOnX11(SDL_Window* window) {
+    SDL_PropertiesID p = SDL_GetWindowProperties(window);
     auto xwindow = static_cast<unsigned long>(SDL_GetNumberProperty(p, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
     std::string display_name;
     if (void* dpy = SDL_GetPointerProperty(p, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr)) {
@@ -376,7 +378,7 @@ void ShowOnX11() {
         LOGW("window: the window manager hasn't mapped the window in 3 s (the screens off?), going on without it");
         SendMapNotify(xwindow, display_name);
     });
-    SDL_ShowWindow(g_window);
+    SDL_ShowWindow(window);
     {
         std::lock_guard lock(m);
         shown = true;
@@ -386,9 +388,7 @@ void ShowOnX11() {
 }
 
 void ShowWindow() {
-    const char* driver = SDL_GetCurrentVideoDriver();
-    if (driver && std::strcmp(driver, "x11") == 0) ShowOnX11();
-    else SDL_ShowWindow(g_window);
+    sdl::Show(g_window);
     SDL_RaiseWindow(g_window);
     SDL_SyncWindow(g_window);
     UpdatePixelSize();
@@ -479,12 +479,28 @@ void ToImGui(const SDL_Event& in) {
     if (e.type == SDL_EVENT_WINDOW_MOUSE_LEAVE) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 }
 
+// the window an event is for, 0 for none (the splash's are not the game window's)
+SDL_WindowID EventWindow(const SDL_Event& e) {
+    if (e.type >= SDL_EVENT_WINDOW_FIRST && e.type <= SDL_EVENT_WINDOW_LAST) return e.window.windowID;
+    switch (e.type) {
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP: return e.key.windowID;
+        case SDL_EVENT_TEXT_INPUT: return e.text.windowID;
+        case SDL_EVENT_MOUSE_MOTION: return e.motion.windowID;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP: return e.button.windowID;
+        case SDL_EVENT_MOUSE_WHEEL: return e.wheel.windowID;
+    }
+    return 0;
+}
+
 void Handle(const SDL_Event& e) {
     if (e.type == g_call_event) {
         RunCall(e.user.data1);
         return;
     }
     if (!g_window) return;
+    if (SDL_WindowID id = EventWindow(e); id && id != g_window_id) return;
     ToImGui(e);
     switch (e.type) {
         case SDL_EVENT_KEY_DOWN:
@@ -688,6 +704,14 @@ bool StartVideo() {
     StartAudio();  // here, for the sound's thread (AudioUp)
     return true;
 }
+
+void Show(SDL_Window* window) {
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (driver && std::strcmp(driver, "x11") == 0) ShowOnX11(window);
+    else SDL_ShowWindow(window);
+}
+
+bool Relaunched() { return std::find(Argv().begin(), Argv().end(), "--relaunched") != Argv().end(); }
 
 bool AudioUp() {
     // with no video started (no window), here or on the window thread

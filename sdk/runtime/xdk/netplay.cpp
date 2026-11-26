@@ -48,6 +48,13 @@ input::Pad LocalSample();  // xapi.cpp: this PC's first controller (and a test s
 namespace {
 
 constexpr uint32_t kMagic = 0x504E5441;  // "ATNP"
+// off Windows the socket isn't inherited by a relaunch (kernel::Relaunch execs in this process), which would hold the
+// port; Windows' CreateProcess inherits no handles here
+#ifdef _WIN32
+constexpr int kCloseOnExec = 0;
+#else
+constexpr int kCloseOnExec = SOCK_CLOEXEC;
+#endif
 enum : uint8_t { kHello = 1, kWelcome = 2, kInput = 3, kHash = 4, kRefuse = 5, kFile = 6, kFileAck = 7, kFilesDone = 8,
                  kFilesDoneAck = 9, kAlive = 10, kBye = 11, kPing = 12, kPong = 13 };
 constexpr uint32_t kChunk = 1024;
@@ -272,7 +279,15 @@ void Receive() {
         if (type == kHello && s.host) {
             uint64_t theirs = 0;
             if (n >= 13) std::memcpy(&theirs, buf + 5, 8);
-            if (theirs != ExeHash()) {
+            // tests: XBE_NETPLAY_ANY_BUILD lets in another build of the same game (a Linux and a Windows build: whether
+            // the two stay in step is what such a test finds out)
+            static const bool any_build = std::getenv("XBE_NETPLAY_ANY_BUILD") != nullptr;
+            if (theirs != ExeHash() && any_build && !s.connected) {
+                static bool told = false;
+                if (!told) LOGR("netplay: %s runs another build; let in for a test (XBE_NETPLAY_ANY_BUILD)", inet_ntoa(from.sin_addr));
+                told = true;
+            }
+            if (theirs != ExeHash() && !any_build) {
                 static bool told = false;
                 if (!told) LOGR("netplay: refused %s: player 2 runs another version of the game (both need the same Athelas update)",
                                 inet_ntoa(from.sin_addr));
@@ -563,7 +578,7 @@ std::string AskInternetAddress(SOCKET sock) {
 // this PC's address on its home network (the route out to the internet, no packet sent): for a friend in the same house,
 // whose router may not send the internet address back inside. Empty when there is none.
 std::string LanAddress() {
-    SOCKET t = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    SOCKET t = ::socket(AF_INET, SOCK_DGRAM | kCloseOnExec, IPPROTO_UDP);
     if (t == INVALID_SOCKET) return {};
     sockaddr_in to{};
     to.sin_family = AF_INET;
@@ -625,7 +640,7 @@ void Start() {
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
 #endif
-    s.s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    s.s = ::socket(AF_INET, SOCK_DGRAM | kCloseOnExec, IPPROTO_UDP);
     sockaddr_in me{};
     me.sin_family = AF_INET;
     if (spec.rfind("host:", 0) == 0) {
@@ -993,6 +1008,20 @@ bool HostSendFiles() {
     return true;
 }
 
+// where player 2 keeps player 1's settings and saves for the session: beside the exe on Windows. Elsewhere the exe's
+// folder may be read-only (an AppImage, a system install), so beside the saves folder when the launcher or AppRun names
+// one (--saves), else beside the exe as well
+std::filesystem::path SessionRoot() {
+#ifndef _WIN32
+    if (!app::Args().saves.empty()) {
+        std::error_code ec;
+        std::filesystem::path saves = std::filesystem::absolute(app::Args().saves, ec);
+        if (!ec && saves.has_parent_path()) return saves.parent_path();
+    }
+#endif
+    return app::ExeDir();
+}
+
 void GuestTakeFiles() {
     Session& s = S();
     {
@@ -1009,13 +1038,13 @@ void GuestTakeFiles() {
             l.lock();
         }
     }
-    // the session folder beside the exe: last session's copies moved into "DELETE ME" first (never deleted here), so
+    // the session folder (SessionRoot): last session's copies moved into "DELETE ME" first (never deleted here), so
     // nothing old mixes in
     std::error_code ec;
-    std::filesystem::path dir = app::ExeDir() / "online-session";
+    const std::filesystem::path root = SessionRoot(), dir = root / "online-session";
     if (std::filesystem::exists(dir, ec)) {
-        std::filesystem::create_directories(app::ExeDir() / "DELETE ME", ec);
-        std::filesystem::rename(dir, app::ExeDir() / "DELETE ME" /
+        std::filesystem::create_directories(root / "DELETE ME", ec);
+        std::filesystem::rename(dir, root / "DELETE ME" /
                                          ("online-session-" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count())), ec);
         // couldn't be moved (a file in it held open: OneDrive, antivirus, an Explorer window): the new copies would
         // land among the old ones, and old saves would make the two games differ
@@ -1046,9 +1075,15 @@ void GuestTakeFiles() {
             written = std::fclose(out) == 0 && written;
         }
         if (!written && s.fail.empty())
+#ifdef _WIN32
             s.fail = "Can't write player 1's settings and saves into " + dir.string() +
                      " (the game's folder must be one you can write to, not Program Files). Move Athelas to another "
                      "folder and try again.";
+#else
+            s.fail = "Can't write player 1's settings and saves into " + dir.string() +
+                     " (it must be a folder you can write to). Start the game with --saves in a folder of yours, or "
+                     "move it to one, and try again.";
+#endif
         count++;
     }
     {
@@ -1099,7 +1134,12 @@ void Prepare() {
         EndBeforeStart("the session couldn't start");
     };
     if (!s.fail.empty()) fail(s.fail);
+#ifdef _WIN32
     const std::string firewall = "\n\nIf Windows asks whether to let the game use the network, allow it.";
+#else
+    const std::string firewall = "\n\nIf this PC has a firewall on (ufw, firewalld), it must let UDP port " +
+                                 std::to_string(ntohs(s.port)) + " in.";
+#endif
     auto host_text = [&] {
         std::string t = s.my_address.empty()
                             ? "Online co-op: waiting for player 2 to join.\n\nYour friend types " +

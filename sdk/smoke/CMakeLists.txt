@@ -15,6 +15,10 @@ file(GLOB signatures CONFIGURE_DEPENDS ${XBE_SDK_DIR}/xdk/*/signatures.toml)
 set(GEN ${CMAKE_CURRENT_BINARY_DIR}/gen)
 xbe_stand_in(${GEN} TOML ${signatures})
 
+# its own window and sound checks use SDL 3 directly, whose headers XbeRecomp.cmake gives only the files that need them
+# (a system SDL 3, as Fedora's, hid this; Ubuntu's CI has none)
+set_property(SOURCE ${CMAKE_CURRENT_LIST_DIR}/smoke.cpp ${CMAKE_CURRENT_LIST_DIR}/smoke_av.cpp APPEND PROPERTY
+             INCLUDE_DIRECTORIES "${sdl3_SOURCE_DIR}/include")
 add_executable(xbe_smoke ${XBE_RUNTIME_SOURCES} ${CMAKE_CURRENT_LIST_DIR}/smoke.cpp ${CMAKE_CURRENT_LIST_DIR}/smoke_av.cpp ${GEN}/x86_func_mapping.cpp
                ${XBE_IMGUI_SOURCES})
 target_include_directories(xbe_smoke PRIVATE ${XBE_SDK_DIR}/runtime ${GEN})

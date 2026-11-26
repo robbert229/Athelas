@@ -48,6 +48,13 @@ constexpr uint32_t kLinkUp = 0x01 | 0x02 | 0x08;          // active, 100 Mbps, f
 constexpr uint32_t kXnAddrEthernet = 0x02 | 0x04;         // ethernet, static address
 constexpr DWORD kUdpConnReset = 0x9800000C;  // SIO_UDP_CONNRESET: off, or a send to a closed port fails the next recv
 constexpr int kLoopbackInstances = 8;
+// off Windows: sockets not inherited by a relaunch (kernel::Relaunch execs, and the new instance binds the same
+// ports), and a send on a closed connection an error, not SIGPIPE (which ends the process)
+#ifdef _WIN32
+constexpr int kCloseOnExec = 0, kNoSignal = 0;
+#else
+constexpr int kCloseOnExec = SOCK_CLOEXEC, kNoSignal = MSG_NOSIGNAL;
+#endif
 
 struct Socket {
     SOCKET s = INVALID_SOCKET;
@@ -130,7 +137,7 @@ uint32_t JoinAddress() {
 
 uint32_t PrimaryAddress() {
     uint32_t addr = htonl(INADDR_LOOPBACK);
-    SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    SOCKET s = ::socket(AF_INET, SOCK_DGRAM | kCloseOnExec, IPPROTO_UDP);
     sockaddr_in to{};
     to.sin_family = AF_INET;
     to.sin_port = htons(53);
@@ -205,6 +212,14 @@ int Recv(uint32_t sock, SOCKET s, const std::vector<Span>& spans, uint32_t from,
     int n = ::recvfrom(s, reinterpret_cast<char*>(buf.data()), int(buf.size()), 0, reinterpret_cast<sockaddr*>(&src), &sl);
     if (n < 0) {
         err = HostError();
+#ifndef _WIN32
+        // a connected UDP socket's port unreachable reply from an earlier send: Linux reports it as ECONNREFUSED,
+        // Winsock as WSAECONNRESET, which SIO_UDP_CONNRESET turns off (AddSocket); nothing to read, as there
+        if (err == WSAECONNREFUSED) {
+            auto it = g_sockets.find(sock);
+            if (it != g_sockets.end() && it->second.udp) err = WSAEWOULDBLOCK;
+        }
+#endif
         if (err != WSAEWOULDBLOCK) LOG_FIRST(20, "xnet: recv %X failed (%d)", sock, err);
         return -1;
     }
@@ -232,7 +247,7 @@ int Recv(uint32_t sock, SOCKET s, const std::vector<Span>& spans, uint32_t from,
 }
 
 int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
-    if (!to) return ::send(s, reinterpret_cast<const char*>(data), len, 0);
+    if (!to) return ::send(s, reinterpret_cast<const char*>(data), len, kNoSignal);
     sockaddr_in d = *to;
     if (d.sin_addr.s_addr == INADDR_BROADCAST) {
         std::vector<sockaddr_in> also;
@@ -268,6 +283,10 @@ int SendOnce(SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
 
 int Send(uint32_t sock, SOCKET s, const uint8_t* data, int len, const sockaddr_in* to) {
     int n = SendOnce(s, data, len, to);
+#ifndef _WIN32
+    // the same on a connected UDP socket's send (the reply is reported once): sent again
+    if (n < 0 && errno == ECONNREFUSED) n = SendOnce(s, data, len, to);
+#endif
     if (n < 0) LOG_FIRST(20, "xnet: send %X failed (%d)", sock, WSAGetLastError());
     return n;
 }
@@ -480,7 +499,7 @@ HLE_STDCALL(socket, 3) {
     if (af != AF_INET) return Fail(WSAEAFNOSUPPORT);
     bool udp = type == SOCK_DGRAM;
     if (!udp && type != SOCK_STREAM) return Fail(WSAESOCKTNOSUPPORT);
-    SOCKET s = ::socket(AF_INET, int(type), udp ? IPPROTO_UDP : IPPROTO_TCP);
+    SOCKET s = ::socket(AF_INET, int(type) | kCloseOnExec, udp ? IPPROTO_UDP : IPPROTO_TCP);
     if (s == INVALID_SOCKET) return Fail(HostError());
     return AddSocket(s, udp);
 }
@@ -582,7 +601,12 @@ HLE_STDCALL(accept, 3) {
         if (k.s == INVALID_SOCKET) return Fail(WSAENOTSOCK);
         sockaddr_in from{};
         int len = sizeof(from);
+#ifdef _WIN32
         SOCKET s = ::accept(k.s, reinterpret_cast<sockaddr*>(&from), &len);
+#else
+        socklen_t sl = socklen_t(len);
+        SOCKET s = ::accept4(k.s, reinterpret_cast<sockaddr*>(&from), &sl, SOCK_CLOEXEC);
+#endif
         if (s != INVALID_SOCKET) {
             if (a[1]) std::memcpy(HostPtr(a[1]), &from, sizeof(from));
             if (a[2]) W32(a[2], sizeof(from));
@@ -671,7 +695,7 @@ HLE_STDCALL(send, 4) {
     for (;;) {
         Socket k = Find(a[0]);
         if (k.s == INVALID_SOCKET) return Fail(WSAENOTSOCK);
-        int n = ::send(k.s, static_cast<const char*>(HostPtr(a[1])), int(a[2]), int(a[3]));
+        int n = ::send(k.s, static_cast<const char*>(HostPtr(a[1])), int(a[2]), int(a[3]) | kNoSignal);
         if (n >= 0) return uint32_t(n);
         int e = WSAGetLastError();
         if (e != WSAEWOULDBLOCK || k.nonblocking) return Fail(e);

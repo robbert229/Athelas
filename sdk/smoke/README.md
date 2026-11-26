@@ -6,21 +6,28 @@ recompiled code is a stand in (`cmake/XbeStandIn.cmake`): every XDK symbol the S
 every recompiled function traps.
 
 Alone it starts logging, the settings file and guest memory, then exits 0. `--window` opens the game window and logs
-what reaches the game from it, with a paced frame thread (`--fps`). `--vulkan` opens the window and draws N frames
+what reaches the game from it, with a paced frame thread (`--fps`), and the keyboard player's controller as the keys
+and the mouse make it, whenever it changes. `--keycaps` writes the key caps the ports put in the game's hints for the
+buttons A to RT (the keys from `[keyboard]`) to `keycaps/` beside the exe: GDI's on Windows (`xbe_smoke.exe` under Wine
+too), stb_truetype's elsewhere. `XBE_KEYCAP_FONT=builtin` draws them with the built-in font, as on a system without
+Arial Bold or Liberation Sans Bold. `--vulkan` opens the window and draws N frames
 (`--frames N`, 0 until the window is closed) through the real Vulkan backend: a clear and three triangles through
 `Backend::Draw` (fixed-function state, shaders through glslang), shown at the console's 4:3 with the ImGui overlay, paced at `--fps` too (with v-sync, the screen's refresh is the
 most).
 `--audio` plays a 440/660 Hz tone through the platform audio output, alone for N / 60 seconds or while the frames are
 drawn. It exits 1 when the renderer doesn't start or the output pulls less than half real time. `--display-change`
 (with `--vulkan`) pushes a display mode change and a window HDR change twice a second, as SDL sends them when a screen
-is plugged in, while the frames read the desktop mode the window thread keeps.
+is plugged in, while the frames read the desktop mode the window thread keeps. `--splash` (with `--window` or `--vulkan`) shows
+the boot splash first, `smoke-splash.png` or `.bmp` beside the exe, and opens the window behind it at the first
+frame, as a game's. `--discord <application id>` (with `--window`) turns the Discord status on for the run, the frame count as
+its state, and off again for the last quarter of the frames; a stand-in server shows what reaches Discord's socket.
 
 ## Build and run (Linux)
 
 ```
 cmake -S sdk/smoke -B sdk/smoke/build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 ninja -C sdk/smoke/build xbe_smoke
-cd sdk/smoke/build && ./xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change]
+cd sdk/smoke/build && ./xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID]
 ```
 
 Useful with `--vulkan` and `--audio`: `XBE_VK_VALIDATE=1` (or `sync`) logs the Khronos validation layer's errors, or
@@ -70,18 +77,28 @@ XBE_PORT=ports/rotk-xbox/rotkxbox RUN=1 sdk/smoke/wincross.sh
 
 Under Wine `xbe_port_check.exe --no-dialogs` runs the real `wWinMain` as far as finding the game, and exits 2.
 
-## Stand ins
+## The Win32 app files off Windows
 
-Off Windows, `runtime/app/posix_pending.cpp` stands in for the Win32 app files the build leaves out
-(`XBE_WIN32_ONLY_SOURCES` in `cmake/XbeRecomp.cmake`). Each stand in says what replaces it. Delete them as the real
-code lands.
+Off Windows the build leaves out the Win32 app files (`XBE_WIN32_ONLY_SOURCES` in `cmake/XbeRecomp.cmake`) and builds
+their SDL3 and POSIX twins instead (`XBE_SDL_APP_SOURCES`): `main_sdl.cpp`, `splash_sdl.cpp`, `netplay_window_sdl.cpp`
+and the rest. No stand ins are left.
 
 ## Playing a native build from a script
 
 `vpad.py` plugs in a virtual Xbox 360 controller through uinput (`python3-evdev`, write access to `/dev/uinput`) and
 plays the harness's pad scripts on it (`sdk/harness/README.md`), a frame being 1/60 s; `--fifo <pipe>` then keeps it
 plugged in and presses what is written to the pipe (`A 8`, `LS+X 20`, `wait 30`). It answers the game's rumble and
-logs it. Off Windows `kill -USR1 <pid>` takes a screenshot, as the backslash key does, into `Screenshots`.
+logs it. Every game instance on the machine sees every pad: `--product <id>` gives a pad its own Microsoft product id,
+and `SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=0x045e/<id>` in a game's environment keeps it to that one (two
+instances in online co-op, one pad each). Off Windows `kill -USR1 <pid>` takes a screenshot, as the backslash key
+does, into `Screenshots`.
+
+`vkbd.py` is its keyboard and mouse twin: the same scripts with the `[keyboard]` settings' key names (`W+LAlt 30`,
+`Mouse2 8`, `Numpad5`, `F10`), `move dx dy [frames]` for relative mouse movement and `wheel n`, through XTest into one
+X server (`--display`): gamescope's own Xwayland (the game's `DISPLAY` there, in `/proc/<pid>/environ`) or Xvfb. A
+uinput keyboard won't do: headless gamescope reads no input devices, and the desktop's compositor takes every new
+keyboard and types into its focused window. `gamescopectl screenshot` takes the game with the in-game menu; give it
+`GAMESCOPE_WAYLAND_DISPLAY` from the game's environment, or it reaches whichever gamescope holds the default socket.
 
 `audio_level.sh <seconds> [sink]` records a sink's monitor and prints its level. With a null sink of its own
 (`pactl load-module module-null-sink sink_name=xbe_test`, then `PIPEWIRE_NODE=xbe_test` for the game) it measures the

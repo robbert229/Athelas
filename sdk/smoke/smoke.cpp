@@ -1,14 +1,23 @@
 // xbe_smoke: the runtime started without a game, as far as each platform's host side goes so far.
-//   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change]
+//   xbe_smoke [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID]
 // Logging, the settings file and guest memory, then exit 0. --window (off Windows) opens the game window and runs its
 // event loop as a port does: keys, mouse buttons, the wheel, focus and close reach GameInfo::message as Win32
-// messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second.
+// messages and are logged, and a frame thread paces frames at --fps (60; 0 none), logging the rate each second and
+// the keyboard player's controller as the keys and the mouse make it (keys::Merge, as input::Poll reads it) when it
+// changes.
 // --frames N closes the window after N frames (0: when it is closed).
 // --vulkan (off Windows, instead of --window) opens the game window and draws the frames through the Vulkan backend
 // with the ImGui overlay, paced at --fps too (with v-sync, the screen's refresh is the most); --audio plays a test tone through the platform audio output, alone for N / 60 seconds or
 // while the frames are drawn (smoke_av.cpp). Exit 1 when either fails.
 // --display-change (off Windows, with --vulkan): a display's mode changed and the window's HDR state changed, as SDL
 // says them on a hot-plug, twice a second while the frames read the desktop mode the window thread keeps.
+// --splash (off Windows, with --window or --vulkan): the boot splash, smoke-splash.png or .bmp beside the exe, up
+// first, the window opening behind it at the first frame as a game's does.
+// --discord <application id> (with --window): the Discord status on, the frame count as its state, switched off
+// again for the last quarter of the frames (the status cleared, the connection closed).
+// --keycaps: the keyboard's key caps for the eight buttons A to RT, as the ports put them in the game's hints
+// (app::KeyCapPicture, the keys from [keyboard]), written to keycaps/<button>.png beside the exe: GDI's text on Windows,
+// stb_truetype's elsewhere.
 // --crash segv|abort|overflow (off Windows): the crash handler installed, then that crash, on a thread the way the
 // kernel starts the game's (its own signal stack): a crash log should land in CrashDumps beside the exe.
 #include <algorithm>
@@ -23,8 +32,11 @@
 #include <windows.h>  // off Windows the compat header: the WM_ and VK_ names
 
 #include "app/app.h"
+#include "app/prompt_style.h"
+#include "core/input.h"
 #include "core/keys.h"
 #include "core/log.h"
+#include "gpu/texture_pack.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 #ifndef _WIN32
@@ -35,9 +47,13 @@
 
 namespace {
 bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result);
+std::atomic<int> g_frames{0};
+std::string Activity() { return "Smoke test"; }
+std::string ActivityState() { return "Frame " + std::to_string(g_frames.load() / 60 * 60); }
 }
 namespace smoke {  // smoke_av.cpp
 extern bool g_display_change;
+extern bool g_splash;
 void Ui(double fps);
 int Run(bool vulkan, bool sound, int frames);
 }  // namespace smoke
@@ -50,11 +66,13 @@ const app::GameInfo app::kGame = {
     .log = "smoke",
     .settings = "smoke.toml",
     .version = "xbe_smoke",
-    .splash = L"",
+    .splash = L"smoke-splash",  // --splash
     .missing = L"No game: the smoke test runs without one.",
     .images = {{"stand-in.xbe", "xbe_smoke"}},
     .message = Message,
     .ui = smoke::Ui,
+    .activity = Activity,            // --discord
+    .activity_state = ActivityState,
 };
 // what CMake writes from the xbe (add_xbe_image)
 extern const char kImageSha1[] = "";
@@ -62,10 +80,12 @@ extern const char kImageSha1[] = "";
 namespace {
 
 struct Options {
+    std::string discord;
     bool window = false, vulkan = false, audio = false;
     int frames = 0;
     int fps = 60;
     std::string crash;
+    bool keycaps = false;
 };
 
 // what the window hands the game, logged as it comes (a game's own hooks see the same)
@@ -111,7 +131,13 @@ void Crash(const std::string& kind) {
 
 // the window thread's loop on the main thread, as a port's; frames from another thread, as the game's
 int RunWindow(const Options& o) {
-    if (!app::StartWindow(true)) return 1;
+    bool splash = smoke::g_splash && app::OpenSplash();
+    if (!app::StartWindow(!splash)) return 1;
+    if (!o.discord.empty()) {
+        app::Get().discord = true;
+        app::Get().discord_app_id = o.discord;
+        discord::Start();
+    }
     uint32_t w = 0, h = 0;
     app::WindowPixelSize(w, h);
     LOGR("smoke: window up, %ux%u pixels, alive %d", w, h, app::WindowAlive());
@@ -120,9 +146,28 @@ int RunWindow(const Options& o) {
         using clock = std::chrono::steady_clock;
         auto start = clock::now(), second = start;
         int n = 0, last = 0;
+        std::string pad_was;
         while (!stop && (!o.frames || n < o.frames)) {
+            app::SplashFirstFrame();
             app::Pace();
             n++;
+            g_frames = n;
+            if (!o.discord.empty() && o.frames && n == o.frames * 3 / 4) {
+                LOGR("smoke: Discord status off");
+                app::Get().discord = false;
+            }
+            // the keyboard player's controller, once a frame as a game polls it
+            input::Pad p{}, other{};
+            const int player = int(app::Get().keyboard_player);
+            keys::Merge(player - 1, p);
+            keys::Merge(2 - player, other);  // the other player's port: nothing from the keys
+            char text[128];
+            std::snprintf(text, sizeof text, "buttons %04X, A B X Y black white LT RT %u %u %u %u %u %u %u %u, left stick %d %d",
+                          p.buttons, p.analog[0], p.analog[1], p.analog[2], p.analog[3], p.analog[4], p.analog[5],
+                          p.analog[6], p.analog[7], p.lx, p.ly);
+            if (other.connected || other.buttons || other.lx || other.ly) LOGR("smoke: frame %d, keys on player %d's port", n, 3 - player);
+            if (pad_was != text) LOGR("smoke: frame %d, player %d's controller (the keyboard): %s", n, player, text);
+            pad_was = text;
             if (clock::now() - second >= std::chrono::seconds(1)) {
                 uint32_t pw = 0, ph = 0;
                 app::WindowPixelSize(pw, ph);
@@ -157,10 +202,16 @@ bool Parse(int argc, char** argv, Options& o) {
             o.fps = std::atoi(argv[++i]);
         } else if (!std::strcmp(argv[i], "--display-change")) {
             smoke::g_display_change = true;
+        } else if (!std::strcmp(argv[i], "--splash")) {
+            smoke::g_splash = true;
+        } else if (!std::strcmp(argv[i], "--discord") && i + 1 < argc) {
+            o.discord = argv[++i];
+        } else if (!std::strcmp(argv[i], "--keycaps")) {
+            o.keycaps = true;
         } else if (!std::strcmp(argv[i], "--crash") && i + 1 < argc) {
             o.crash = argv[++i];
         } else {
-            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--crash segv|abort|overflow]\n", argv[0]);
+            std::fprintf(stderr, "usage: %s [--window] [--vulkan] [--audio] [--frames N] [--fps N] [--display-change] [--splash] [--discord ID] [--keycaps] [--crash segv|abort|overflow]\n", argv[0]);
             return false;
         }
     }
@@ -184,6 +235,27 @@ int Smoke(int argc, char** argv) {
     LOGR("smoke: settings from %s", app::SettingsFile().string().c_str());
     if (!mem::Init()) return Fail("guest memory");
     LOGR("smoke: guest memory up");
+    if (o.keycaps) {
+        auto dir = app::SettingsFile().parent_path() / "keycaps";
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        static const struct {
+            const char* button;
+            keys::Action action;
+        } kCaps[] = {{"A", keys::kA},         {"B", keys::kB},         {"X", keys::kX},
+                     {"Y", keys::kY},         {"WHITE", keys::kWhite}, {"BLACK", keys::kBlack},
+                     {"LT", keys::kLeftTrigger}, {"RT", keys::kRightTrigger}};
+        for (const auto& c : kCaps) {
+            gpu::pack::Image img;
+            std::string key = keys::FirstKey(c.action);
+            if (!app::KeyCapPicture(c.button, 256, 256 * 43 / 64, 0.07f, img) || img.levels.empty()) {
+                LOGR("smoke: no key cap for %s (%s)", c.button, key.c_str());
+                continue;
+            }
+            bool ok = gpu::pack::WritePng(dir / (std::string(c.button) + ".png"), img.width, img.height, img.levels[0]);
+            LOGR("smoke: key cap for %s (%s)%s", c.button, key.c_str(), ok ? "" : ", not written");
+        }
+    }
 #ifndef _WIN32
     if (!o.crash.empty()) Crash(o.crash);
     if (o.vulkan || o.audio) {

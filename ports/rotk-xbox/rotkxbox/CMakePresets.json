@@ -129,7 +129,7 @@
         },
         {
             "name": "linux-appimage",
-            "displayName": "Linux Release for the AppImage (appimage.sh, in its Ubuntu 22.04 container)",
+            "displayName": "Linux Release for the AppImage and the .tar.xz (release.sh, in its Ubuntu 22.04 container)",
             "inherits": "linux-release",
             "cacheVariables": {
                 "CMAKE_EXE_LINKER_FLAGS": "-static-libstdc++ -static-libgcc"

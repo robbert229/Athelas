@@ -868,4 +868,12 @@ void DrawOverlay(double) {
     look::PopStyle();
 }
 
+#ifndef _WIN32
+// prompt_style.cpp: the key caps' text off Windows, when no bold face is installed
+void OverlayFontData(const unsigned int*& data, unsigned int& size) {
+    data = overlay_font_compressed_data;
+    size = overlay_font_compressed_size;
+}
+#endif
+
 }  // namespace app

@@ -84,6 +84,14 @@ struct PerfAdd {
     }
 };
 
+// the hitch lines' timer: always on, for the few calls a frame that can stall it (shaders, pipelines, textures, waits)
+struct MsAdd {
+    double& acc;
+    std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+    explicit MsAdd(double& a) : acc(a) {}
+    ~MsAdd() { acc += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); }
+};
+
 // milliseconds from an arbitrary start
 uint64_t TickMs() {
 #ifdef _WIN32
@@ -316,6 +324,12 @@ private:
     uint64_t repeats_ = 0, draws_ = 0, waits_ = 0;
     uint64_t no_rep_[4] = {};  // state changed, nothing to repeat, rendering or targets differ, 2D place or layout
     double draw_ms_ = 0, present_ms_ = 0, wait_ms_ = 0;
+    // without XBE_PERF: what the render thread did since the last present, for the hitch lines (as Direct3D 12's)
+    struct HitchWork {
+        uint64_t shaders = 0, pipelines = 0, textures = 0;
+        double shader_ms = 0, pipeline_ms = 0, texture_ms = 0, wait_ms = 0, swap_ms = 0;
+    } hitch_;
+    void LogHitch();
     uint64_t ring_gen_ = 1;  // a new one each time a frame slot's ring starts again
     bool UploadConstants(const void* data, VkDeviceSize size, LastUpload& last, VkDeviceSize& off);
 
@@ -1844,6 +1858,7 @@ void VkBackend::Submit(bool wait) {
     }
     if (wait) {
         PerfAdd wperf{wait_ms_};
+        MsAdd hitch{hitch_.wait_ms};
         waits_++;
         WaitGpu(f.done, "submit");
     }
@@ -3127,6 +3142,8 @@ bool VkBackend::UploadConstants(const void* data, VkDeviceSize size, LastUpload&
 VkShaderModule VkBackend::ShaderModule(uint64_t key, const std::string& hlsl, spirv::Stage stage, const char* entry) {
     auto it = modules_.find(key);
     if (it != modules_.end()) return it->second;
+    MsAdd hitch{hitch_.shader_ms};
+    hitch_.shaders++;
     std::vector<uint32_t> code;
     std::string error;
     VkShaderModule m = VK_NULL_HANDLE;
@@ -3262,6 +3279,8 @@ VkImageView VkBackend::GuestTexture(const State& s, int stage, const TextureDesc
     bool same = tx.img.image && tx.d.format == d.format && tx.d.width == d.width && tx.d.height == d.height &&
                 tx.d.depth == d.depth && tx.d.levels == d.levels && tx.d.cube == d.cube && tx.d.pitch == d.pitch;
     if (!same) {
+        MsAdd hitch{hitch_.texture_ms};
+        hitch_.textures++;
         Retire(tx.img);
         Retire(tx.own);
         tx = Tex{};
@@ -3301,6 +3320,7 @@ VkImageView VkBackend::GuestTexture(const State& s, int stage, const TextureDesc
         bool font_cache = (d.format == 0x19 || d.format == 0x1F) && total <= (1u << 20);
         uint64_t sig = (font_cache ? Hash(p, total, total) : MemSig(d.data, total)) ^ DirtyEpoch(d.data) ^ pal_hash;
         if (sig != tx.sig || !same) {
+            MsAdd hitch{hitch_.texture_ms};
             tx.sig = UploadTexture(tx, p, pal_va ? colours : nullptr) ? sig : 0;  // a failed one is tried again
         }
     }
@@ -3663,6 +3683,8 @@ VkPipeline VkBackend::Pipeline(const PipeKey& k, VkShaderModule vs, VkShaderModu
         }
     }
     if (!p) {
+        MsAdd hitch{hitch_.pipeline_ms};
+        hitch_.pipelines++;
         p = MakePipeline(k, vs, ps);
         if (p) {
             made_drawing_++;
@@ -6005,6 +6027,51 @@ void VkBackend::CaptureShader(const char* kind, uint64_t key, const std::string&
     fprintf(cap_, "     %s\n", name);
 }
 
+// without XBE_PERF: a frame that took 50 ms or more is logged briefly with what it waited on (shaders compiled,
+// pipelines made, textures uploaded), at most one line a second and 300 a run, as Direct3D 12's LogHitch does
+void VkBackend::LogHitch() {
+    using clock = std::chrono::steady_clock;
+    static clock::time_point last_frame = clock::now(), last_line{};
+    static uint64_t frames = 0, lines = 0, skipped = 0;
+    auto since = [](clock::time_point t) { return std::chrono::duration<double, std::milli>(clock::now() - t).count(); };
+    double frame_ms = since(last_frame);
+    last_frame = clock::now();
+    // the game's own side of the frame: reads, waits and sleeps on this thread and on the others (frame_work.cpp)
+    kernel::FrameWork mine, others;
+    std::string slow_file;
+    double slow_ms = 0;
+    kernel::TakeFrameWork(mine, others, slow_file, slow_ms);
+    const HitchWork& h = hitch_;
+    if (frame_ms >= 50.0 && frames > 60 && lines < 300) {
+        if (lines && since(last_line) < 1000.0) {
+            skipped++;
+        } else {
+            // what the renderer did on this thread that can stall it; the rest is drawing, the game's own work or
+            // waiting on it
+            double host = h.shader_ms + h.pipeline_ms + h.texture_ms + h.wait_ms + h.swap_ms;
+            LOGR("hitch: frame %.0f ms | shaders %llu (%.0f ms), pipelines %llu (%.0f ms), textures %llu new (%.0f ms), "
+                 "GPU waits %.0f ms, swap %.0f ms, game and other %.0f ms%s",
+                 frame_ms, (unsigned long long)h.shaders, h.shader_ms, (unsigned long long)h.pipelines,
+                 h.pipeline_ms, (unsigned long long)h.textures, h.texture_ms, h.wait_ms, h.swap_ms,
+                 std::max(frame_ms - host, 0.0), skipped ? " (and earlier ones not listed)" : "");
+            auto ms = [](int64_t ns) { return double(ns) / 1e6; };
+            std::string slow = slow_ms >= 5 && !slow_file.empty()
+                                   ? ", slowest " + slow_file + " " + std::to_string(int(slow_ms + 0.5)) + " ms"
+                                   : std::string();
+            LOGR("hitch:   game thread: reading %.0f ms (%llu reads, %llu KB), waiting %.0f ms, sleeping %.0f ms | other "
+                 "threads: reading %.0f ms (%llu reads, %llu KB)%s",
+                 ms(mine.read_ns), (unsigned long long)mine.reads, (unsigned long long)(mine.read_bytes / 1024),
+                 ms(mine.wait_ns), ms(mine.sleep_ns), ms(others.read_ns), (unsigned long long)others.reads,
+                 (unsigned long long)(others.read_bytes / 1024), slow.c_str());
+            last_line = clock::now();
+            skipped = 0;
+            if (++lines == 300) LOGR("hitch: 300 listed, no more this run");
+        }
+    }
+    hitch_ = HitchWork{};
+    frames++;
+}
+
 void VkBackend::Present(const Surface& front) {
     PerfAdd perf{present_ms_};
     if (lost_ || !device_) return;
@@ -6040,6 +6107,7 @@ void VkBackend::Present(const Surface& front) {
             fps_n = 0;
         }
     }
+    if (!g_vk_perf) LogHitch();
     // the window resized (Wayland's, which only the window's size says), minimised or v-sync changed in the menu: a
     // new swapchain
     // (S17: fast forward is not held to the screen's refresh, as on Direct3D 12: the swapchain is made again with
@@ -6100,7 +6168,9 @@ void VkBackend::Present(const Surface& front) {
     EndRendering();
     Frame& f = frames_[frame_];
     uint32_t index = 0;
+    auto swap_t = std::chrono::steady_clock::now();
     VkResult r = vkAcquireNextImageKHR(device_, swap_, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &index);
+    hitch_.swap_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - swap_t).count();
     if (r == VK_ERROR_OUT_OF_DATE_KHR) {
         Submit(true);  // the frame's draws still run; the acquire semaphore was not signalled, so it stays usable
         vkDeviceWaitIdle(device_);
@@ -6189,6 +6259,7 @@ void VkBackend::Present(const Surface& front) {
         pid.pPresentIds = &id;
         pi.pNext = &pid;
     }
+    swap_t = std::chrono::steady_clock::now();
     r = vkQueuePresentKHR(queue_, &pi);
     if (present_wait_) {
         present_id_ = id;
@@ -6207,6 +6278,7 @@ void VkBackend::Present(const Surface& front) {
         }
         vkWaitForPresentKHR(device_, swap_, present_id_ - 2, 100000000ull);
     }
+    hitch_.swap_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - swap_t).count();
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
         vkDeviceWaitIdle(device_);
         if (!CreateSwapchain()) LOG_FIRST(4, "vulkan: the swapchain could not be made again: %s", error_.c_str());
