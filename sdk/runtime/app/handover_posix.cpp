@@ -4,6 +4,7 @@
 // write end (or an eventfd) it writes once its first frames are up, and the parent waiting on it with its window
 // shown. That also changes the process id a launcher waits on. ROTK has one image and never relaunches; The Two
 // Towers and The Fellowship of the Ring do, and want it when they come to Linux.
+#ifndef _WIN32
 #include "app/app.h"
 
 namespace app {
@@ -13,3 +14,5 @@ bool HandingOver() { return false; }
 void FinishHandover() {}
 
 }  // namespace app
+
+#endif  // !_WIN32

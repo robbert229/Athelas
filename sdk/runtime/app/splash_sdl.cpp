@@ -1,6 +1,7 @@
 // The boot splash off Windows (splash.cpp's twin): GameInfo::splash .bmp or .png beside the exe, centred in a
 // borderless SDL window. The game boots behind it with its window hidden and waits at its first frame until the
 // splash has been up kMinimum. No file, or a relaunch: no splash.
+#ifndef _WIN32
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -151,3 +152,5 @@ void CloseSplash() {
 }
 
 }  // namespace app
+
+#endif  // !_WIN32

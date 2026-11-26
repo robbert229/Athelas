@@ -1,5 +1,6 @@
 // the log's opening lines off Windows (system_info.cpp's twin): what the game runs on and with which settings, from
 // /proc, /sys, /etc/os-release and uname
+#ifndef _WIN32
 #include <sched.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -234,3 +235,5 @@ void LogSystem() {
 }
 
 }  // namespace app
+
+#endif  // !_WIN32
