@@ -1,4 +1,4 @@
-# ROTK Xbox port, 13: the Linux release on clean distributions (2026-11-26)
+# ROTK Xbox port, 14: the Linux release on clean distributions (2026-11-26)
 
 M2-D: `release.sh` (was `appimage.sh`) makes the AppImage and `ROTKXbox-<version>-linux-x86_64.tar.xz` from one
 build in its Ubuntu 22.04 container. Both start through `linux/rotkxbox.sh`, so they find the game and keep their data

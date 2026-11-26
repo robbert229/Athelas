@@ -123,7 +123,7 @@ Work on `integration/m2` (stacked on `integration/m1`), in four workstreams:
   - M2: `appimage.sh` became `release.sh`, which also makes `ROTKXbox-<version>-linux-x86_64.tar.xz`. Both start
     through `linux/rotkxbox.sh` (the AppImage's AppRun), so they keep their data in the same place; a `portable.txt`
     beside the AppImage or in the tarball's folder keeps it there (decision 1's override). Run to the main menu in
-    clean Ubuntu 22.04, Fedora 44 and Arch containers (`ports/rotk-xbox/notes/rotkx-13-linux-release.md`).
+    clean Ubuntu 22.04, Fedora 44 and Arch containers (`ports/rotk-xbox/notes/rotkx-14-linux-release.md`).
 - **CI:** add a Linux job that builds the runtime and launcher without game code (the game can't be built in CI:
   it needs the player's `default.xbe`). The harness tests stay local. Done for the runtime (M2): `build.yml`'s
   `linux` job builds `xbe_smoke` and `xbe_port_check` with clang 22, runs them under Xvfb on llvmpipe and runs
